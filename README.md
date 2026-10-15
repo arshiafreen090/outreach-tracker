@@ -15,7 +15,7 @@ A personal dashboard for managing LinkedIn internship outreach: who accepted, wh
 |---|---|---|
 | 1 | Repo, Supabase schema, template seed + engine + tests, company categories | **done** |
 | 2 | Dashboard: login, accepted/pending/messaged cards, template dropdown, copy, mark-sent, log-request form, settings, template editor | **done** (not yet exercised against a live Supabase project) |
-| 3 | Gmail Apps Script parser + Telegram alerts (needs your sample emails) | |
+| 3 | Gmail Apps Script parser for accepts, replies and job alerts (needs your sample emails). No Telegram: alerts are badges inside the dashboard | |
 | 4 | Google Sheet sync + follow-up tracking | |
 | 5 | Jobs feed | |
 | 6 | Companies page, find-people links, company discovery and blurbs | |
@@ -28,7 +28,6 @@ A personal dashboard for managing LinkedIn internship outreach: who accepted, wh
 | GitHub (private repo) | Phase 2 | Code, and Vercel deploys from it |
 | [Vercel](https://vercel.com) (Hobby) | Phase 2 | Hosting the dashboard |
 | Personal Google account (@gmail.com) | Phase 3 | Gmail Apps Script, Google Sheet |
-| Telegram + [@BotFather](https://t.me/BotFather) | Phase 3 | Notifications |
 
 ## Phase 1 setup
 
@@ -37,7 +36,7 @@ Developed and tested on Node 24 and npm 11.
 1. **Create a Supabase project** (free plan) in your organisation. The form asks for a database password: save it in a password manager; this app never uses it. Then open the project's API Keys page and note the project URL, the *publishable* key (`sb_publishable_...`) and the *secret* key (`sb_secret_...`). The secret key bypasses RLS: it goes only into `.env.local`, never into chat, a commit or a `NEXT_PUBLIC_` variable.
 2. **Create the schema.** Run `npm run sql:copy` (Windows: puts both migrations, in order, on your clipboard), open the project's SQL Editor, paste and run. Without `clip`, run the files by hand in order: [`0001_init.sql`](supabase/migrations/0001_init.sql), [`0002_actions.sql`](supabase/migrations/0002_actions.sql), then [`0003_owner_only.sql`](supabase/migrations/0003_owner_only.sql). If you already applied the earlier ones, `npm run sql:copy:latest` copies only the newest.
 3. **Lock down login.** In Authentication, turn **off** "Allow new users to sign up", then create one user with your email and a password. If the form offers "Auto Confirm User", tick it, otherwise sign-in fails until the email is confirmed. I haven't verified the exact labels in the current dashboard; `npm run doctor` (step 5) tells you if anything is off.
-4. **Configure env.** `.env.local` already exists (git-ignored, with a generated `INGEST_SHARED_SECRET` for Phase 3). Fill in `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY` and `ALLOWED_EMAIL` (the email of the user from step 3). Leave the Telegram keys empty until Phase 3.
+4. **Configure env.** `.env.local` already exists (git-ignored, with a generated `INGEST_SHARED_SECRET` for Phase 3). Fill in `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY` and `ALLOWED_EMAIL` (the email of the user from step 3).
 5. **Check and seed.**
    ```bash
    npm install
