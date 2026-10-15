@@ -10,7 +10,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "seed:templates": "tsx --env-file=.env.local scripts/seed-templates.ts"
+    "seed:templates": "tsx --env-file=.env.local scripts/seed-templates.mts",
+    "doctor": "tsx --env-file=.env.local scripts/doctor.mts",
+    "sql:copy": "node scripts/print-sql.mjs | clip"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.10",

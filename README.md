@@ -34,17 +34,17 @@ A personal dashboard for managing LinkedIn internship outreach: who accepted, wh
 
 Developed and tested on Node 24 and npm 11.
 
-1. **Create a Supabase project** (free plan). Copy the project URL, the *publishable* key (`sb_publishable_...`) and the *secret* key (`sb_secret_...`) from the dashboard's API Keys page. The secret key bypasses RLS: keep it on your machine and server only.
-2. **Create the schema.** Open the SQL Editor and run these two files, in order, one at a time: [`0001_init.sql`](supabase/migrations/0001_init.sql), then [`0002_actions.sql`](supabase/migrations/0002_actions.sql) (the atomic functions the dashboard calls).
-3. **Lock down login.** In the dashboard's Auth settings, turn **off** "Allow new users to sign up". Then create one user with your email and a password (Authentication → Users). I haven't verified the exact button labels in the current dashboard, so look for the add-user option there.
-4. **Configure env.** Copy `.env.example` to `.env.local` and fill in `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY` and `ALLOWED_EMAIL`. Leave the Phase 3 keys empty for now.
-5. **Install and seed.**
+1. **Create a Supabase project** (free plan) in your organisation. The form asks for a database password: save it in a password manager; this app never uses it. Then open the project's API Keys page and note the project URL, the *publishable* key (`sb_publishable_...`) and the *secret* key (`sb_secret_...`). The secret key bypasses RLS: it goes only into `.env.local`, never into chat, a commit or a `NEXT_PUBLIC_` variable.
+2. **Create the schema.** Run `npm run sql:copy` (Windows: puts both migrations, in order, on your clipboard), open the project's SQL Editor, paste and run. Without `clip`, run the two files by hand in order: [`0001_init.sql`](supabase/migrations/0001_init.sql), then [`0002_actions.sql`](supabase/migrations/0002_actions.sql).
+3. **Lock down login.** In Authentication, turn **off** "Allow new users to sign up", then create one user with your email and a password. If the form offers "Auto Confirm User", tick it, otherwise sign-in fails until the email is confirmed. I haven't verified the exact labels in the current dashboard; `npm run doctor` (step 5) tells you if anything is off.
+4. **Configure env.** `.env.local` already exists (git-ignored, with a generated `INGEST_SHARED_SECRET` for Phase 3). Fill in `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY` and `ALLOWED_EMAIL` (the email of the user from step 3). Leave the Telegram keys empty until Phase 3.
+5. **Check and seed.**
    ```bash
    npm install
-   npm run seed:templates
+   npm run doctor            # read-only: env, schema, auth user, sign-ups off, anonymous lock-down
+   npm run seed:templates    # then run doctor once more
    ```
-   Expected output ends with `OK: 4 templates verified.` The script inserts each template and its version 1, then reads version 1 back and fails loudly unless it is byte-identical to `templates/seed.md`. It is safe to re-run and never modifies existing rows.
-
+   `doctor` prints OK / WARN / FAIL per check and exits non-zero on any FAIL. It also catches the classic mistake of pasting the secret key into the `NEXT_PUBLIC_` variable. `seed:templates` ends with `OK: 4 templates verified.`: it inserts each template and its version 1, reads version 1 back and fails loudly unless it is byte-identical to `templates/seed.md`. It is safe to re-run and never modifies existing rows.
 6. **Run it.** `npm run dev`, open http://localhost:3000 and sign in with the user from step 3. Nothing can be read without that login: the proxy redirects everyone else to `/login`, every page re-checks, and every server action re-checks the signed-in email against `ALLOWED_EMAIL`.
 
 Day to day:
@@ -118,6 +118,8 @@ src/components/                    AcceptedCard, PendingCard, forms, avatar
 src/lib/categories.ts              category enum + labels
 src/lib/templates/                 seed-parser, engine, seed, default-template selection
 src/lib/{urls,settings,time,auth*}.ts  profile-URL keys, settings, dates, allowlist
-scripts/seed-templates.ts          seeds version 1 into Supabase and verifies it
+scripts/seed-templates.mts         seeds version 1 into Supabase and verifies it
+scripts/doctor.mts                 read-only health check of the live setup (npm run doctor)
+scripts/print-sql.mjs              all migrations in one paste (npm run sql:copy)
 tests/                             templates, schema + RPC (real migrations in PGlite), components (jsdom)
 ```
