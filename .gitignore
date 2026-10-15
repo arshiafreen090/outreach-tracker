@@ -1,0 +1,20 @@
+node_modules/
+.next/
+out/
+coverage/
+*.tsbuildinfo
+next-env.d.ts
+
+# secrets: never commit
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Apps Script local config (contains the shared secret)
+apps-script/.clasp.json
+apps-script/config.local.*
+
+.vercel/
+.DS_Store
+Thumbs.db
