@@ -55,19 +55,18 @@ try {
   fail("Auth service", `unreachable: ${(e as Error).message}`);
 }
 
-// 2. Schema
-const missing: string[] = [];
-for (const table of TABLES) {
-  const { error } = await admin.from(table).select("*", { count: "exact", head: true });
-  if (error) missing.push(`${table} (${error.message})`);
+// 2. Schema. Real GET requests, not HEAD: supabase-js reports a 404 on a HEAD request as success.
+const problems = new Map<string, string>();
+for (const name of [...TABLES, "people_overview", "templates_current"]) {
+  const { error } = await admin.from(name).select("*").limit(1);
+  if (error) problems.set(name, `${error.code ?? "error"}: ${error.message}`);
 }
-if (missing.length) fail("Schema", `missing or unreadable: ${missing.join("; ")}. Run the SQL from 'npm run sql:copy'`);
-else ok("Schema", `${TABLES.length} tables present`);
-
-for (const view of ["people_overview", "templates_current"]) {
-  const { error } = await admin.from(view).select("*", { head: true, count: "exact" });
-  if (error) fail(`View ${view}`, error.message);
-  else ok(`View ${view}`);
+if (problems.size === TABLES.length + 2) {
+  fail("Schema", "NONE of the tables or views exist in this project, so the SQL has not been applied here. Run 'npm run sql:copy', paste it into THIS project's SQL Editor and press Run");
+} else if (problems.size > 0) {
+  fail("Schema", `missing or unreadable: ${[...problems].map(([n, e]) => `${n} (${e})`).join("; ")}. If the SQL ran with an error, nothing from it is kept: fix the error and run all of it again`);
+} else {
+  ok("Schema", `${TABLES.length} tables and 2 views present`);
 }
 
 // upsert_company with a blank name returns null and writes nothing
@@ -80,7 +79,7 @@ else ok("Functions (migration 0002)", "callable");
   const { data, error } = await admin.from("settings").select("key");
   const keys = new Set((data ?? []).map((r: { key: string }) => r.key));
   const absent = SETTING_KEYS.filter((k) => !keys.has(k));
-  if (error) fail("Settings rows", error.message);
+  if (error) fail("Settings rows", `${error.code ?? "error"}: ${error.message}`);
   else if (absent.length) fail("Settings rows", `missing: ${absent.join(", ")}`);
   else ok("Settings rows", "defaults present");
 }
@@ -90,16 +89,21 @@ else ok("Functions (migration 0002)", "callable");
   const seed = parseSeed(readFileSync(new URL("../templates/seed.md", import.meta.url), "utf8"));
   const problems: string[] = [];
   for (const t of seed) {
-    const { data: row } = await admin.from("templates").select("id").eq("key", t.key).maybeSingle();
+    const { data: row, error: rowError } = await admin.from("templates").select("id").eq("key", t.key).maybeSingle();
+    if (rowError) {
+      problems.push(`${t.key}: ${rowError.message}`);
+      continue;
+    }
     if (!row) {
       problems.push(`${t.key} not seeded`);
       continue;
     }
-    const { data: v1 } = await admin.from("template_versions").select("body").eq("template_id", row.id).eq("version", 1).maybeSingle();
-    if (!v1) problems.push(`${t.key} has no version 1`);
+    const { data: v1, error: v1Error } = await admin.from("template_versions").select("body").eq("template_id", row.id).eq("version", 1).maybeSingle();
+    if (v1Error) problems.push(`${t.key}: ${v1Error.message}`);
+    else if (!v1) problems.push(`${t.key} has no version 1`);
     else if (v1.body !== t.body) problems.push(`${t.key} v1 differs from seed.md`);
   }
-  if (problems.length) fail("Templates", `${problems.join("; ")}. Run 'npm run seed:templates'`);
+  if (problems.length) fail("Templates", `${problems.join("; ")}. After the schema exists, run 'npm run seed:templates'`);
   else ok("Templates", `${seed.length} seeded, version 1 matches seed.md byte-for-byte`);
 }
 
