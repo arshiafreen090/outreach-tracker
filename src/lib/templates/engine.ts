@@ -47,6 +47,13 @@ export function findUnresolvedPlaceholders(text: string): string[] {
   return text.match(ANY_PLACEHOLDER) ?? [];
 }
 
+const KNOWN_TOKENS: ReadonlySet<string> = new Set(PLACEHOLDER_NAMES.map((n) => `{{${n}}}`));
+
+/** `{{...}}` tokens that are NOT one of the three real placeholders, e.g. a typo like {{company}}. */
+export function findUnknownPlaceholders(text: string): string[] {
+  return [...new Set(findUnresolvedPlaceholders(text).filter((t) => !KNOWN_TOKENS.has(t)))];
+}
+
 /** First whitespace-separated token of the full name. The card textarea stays editable for odd cases. */
 export function firstNameFromFullName(fullName: string): string {
   return fullName.trim().split(/\s+/)[0] ?? "";

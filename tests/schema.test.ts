@@ -1,24 +1,12 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { PGlite } from "@electric-sql/pglite";
+import type { PGlite } from "@electric-sql/pglite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { parseSeed, type SeedTemplate } from "@/lib/templates/seed-parser";
 import { seedTemplates, type TemplateStore } from "@/lib/templates/seed";
+import { asRole as asRoleIn, makeDb, readRepoFile, scalar as scalarIn } from "./helpers/db";
 
-const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), "utf8");
-const templates = parseSeed(read("../templates/seed.md"));
+const templates = parseSeed(readRepoFile("templates/seed.md"));
 
 let db: PGlite;
-
-/** Mimics what Supabase provides before our migration runs. */
-const SUPABASE_PRELUDE = `
-  create role anon nologin;
-  create role authenticated nologin;
-  -- a role that holds table privileges but has NO RLS policy: proves RLS is really enforced
-  create role outsider nologin;
-  grant usage on schema public to anon, authenticated, outsider;
-  alter default privileges in schema public grant all on tables to anon, authenticated, outsider;
-`;
 
 function pgliteStore(d: PGlite): TemplateStore {
   return {
@@ -46,21 +34,11 @@ function pgliteStore(d: PGlite): TemplateStore {
   };
 }
 
-async function asRole<T>(role: string, fn: () => Promise<T>): Promise<T> {
-  await db.exec(`set role ${role}`);
-  try {
-    return await fn();
-  } finally {
-    await db.exec("reset role");
-  }
-}
-
-const scalar = async <T>(sql: string, params: unknown[] = []) => (await db.query<{ v: T }>(sql, params)).rows[0]!.v;
+const asRole = <T>(role: string, fn: () => Promise<T>) => asRoleIn(db, role, fn);
+const scalar = <T>(sql: string, params: unknown[] = []) => scalarIn<T>(db, sql, params);
 
 beforeAll(async () => {
-  db = new PGlite();
-  await db.exec(SUPABASE_PRELUDE);
-  await db.exec(read("../supabase/migrations/0001_init.sql"));
+  db = await makeDb();
   await seedTemplates(pgliteStore(db), templates);
 });
 
