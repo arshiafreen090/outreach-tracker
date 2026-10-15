@@ -17,7 +17,7 @@ A personal dashboard for managing LinkedIn internship outreach: who accepted, wh
 | 2 | Dashboard: login, accepted/pending/messaged cards, template dropdown, copy, mark-sent, log-request form, settings, template editor | **done** (not yet exercised against a live Supabase project) |
 | 3 | Gmail forwarder + parsers for accepts and job alerts, tested on your real emails, plus the Unknown accepts page. Still to do on your side: apply migration 0004, deploy, install the script. Reply emails need a sample. No Telegram: alerts are badges in the dashboard | built, not yet live |
 | 4 | Replies, follow-ups (derived from your settings), status picker, and the Google Sheet mirror | built; needs migration 0005 and the Sheet script installed |
-| 5 | Jobs feed | |
+| 5 | Jobs feed: LinkedIn alerts saved, company job boards (Greenhouse, Lever, Ashby), role filters, seen / applied / not interested | built; needs migration 0006 |
 | 6 | Companies page, find-people links, company discovery and blurbs | |
 
 ## Accounts you need (all free)
@@ -145,6 +145,23 @@ Three tabs, **Accepted connections**, **Messaged** (one row per message: who, wh
 5. Check the endpoint any time with `npm run sheet:check` (or `npm run sheet:check -- https://YOUR-APP.vercel.app`).
 
 Not verified: Google's docs I could read don't spell out `spreadsheets.currentonly` (third-party sources and Google's add-on docs list it). If the editor rejects it, replace it in the manifest with `https://www.googleapis.com/auth/spreadsheets` (all your spreadsheets), which Google documents.
+## Phase 5: jobs feed
+
+The **Jobs** page lists openings in your six families (data analytics, product analytics, data science, machine learning, AI, software engineering), newest first. Filter by status, role, internships only, or search a title or company. Each job has **Applied**, **Mark seen** and **Not interested** buttons; what you decide sticks even when the job shows up again. The nav badge counts new jobs.
+
+**Where jobs come from**
+
+1. **LinkedIn job-alert emails** (your saved searches), through the Gmail forwarder: each job is saved with company, place, work mode and which alert produced it. LinkedIn's website is never scraped.
+2. **Company job boards**, if you add them under **Jobs > Company job boards**. Greenhouse, Lever and Ashby each publish a public, read-only listing that needs no account ([Greenhouse](https://docs.greenhouse.io/job-board.html), [Lever](https://github.com/lever/postings-api), [Ashby](https://developers.ashbyhq.com/docs/public-job-posting-api)). Add a board by pasting its careers-page address (`boards.greenhouse.io/name`, `jobs.lever.co/name`, `jobs.ashbyhq.com/name`); it is checked once a day by the Gmail script and on demand with **Pull now**. Only the vendors' fixed API addresses are ever called, with no redirects, a 10 second limit and a size cap. Only jobs that classify into your families are kept.
+3. **Not yet:** Internshala and Naukri alert emails. I won't guess their formats: forward one of each as an `.eml` into `samples/`.
+
+**De-duplication:** a job is stored once per source and id. The same opening also seen on another source (same company, title and city) is merged into one entry that shows both sources. Jobs you triaged are never reset.
+
+**Role families** come from title keywords (so "Principal AI Data Analyst" is AI, "AI/ML Engineer" is ML, finance and HR analysts are excluded). They are a filter, not a verdict: the real title is always shown, and anything unplaced is "Other".
+
+**What the sources don't tell us:** Lever's documented fields have no posting date, Ashby's have no job id (its page address is used instead), and Greenhouse's `updated_at` is not a publish date. So the feed shows when *you* found a job, not when it was posted.
+
+**Setup:** apply migration 0006 (`npm run sql:copy:latest`, paste, Run). If you already installed the Gmail script, paste the updated [`apps-script/Code.gs`](apps-script/Code.gs) over it: it now also triggers the daily board pull. `npm run ingest:check` and `npm run smoke` cover the whole flow with fake data and clean up after themselves.
 ## How the pieces work
 
 **Templates.** `templates/seed.md` is parsed by `src/lib/templates/seed-parser.ts` (strict: unexpected input throws, nothing is trimmed). `src/lib/templates/engine.ts` substitutes the three placeholders in a single pass:
@@ -188,6 +205,8 @@ templates/seed.md                  original template text (never edit)
 supabase/migrations/0001_init.sql  schema, triggers, views, RLS
 supabase/migrations/0002_actions.sql  atomic functions: log_request, mark_accepted, mark_message_sent, ...
 supabase/migrations/0005_followups.sql  mark_replied, mark_followed_up, set_person_status
+supabase/migrations/0006_jobs.sql       jobs columns, job_sources, upsert_job (de-duplicating)
+src/lib/jobs/                      role classifier, board adapters, pull, filters
 apps-script-sheet/                  the Google Sheet mirror script (bound to your Sheet)
 src/lib/sheet/                     builds the three tabs (formula-safe) for /api/sheet
 src/lib/followups.ts               follow-up due logic and grouping

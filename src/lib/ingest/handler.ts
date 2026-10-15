@@ -1,6 +1,7 @@
 import { verifyBearer } from "./auth";
 import { processEmail, type Processed } from "./linkedin/process";
 import { parseRawEmail, type ParsedEmail } from "./mime";
+import type { JobOutcome } from "../jobs/save";
 import { LIMITS, parseIngestPayload, type IncomingEmail, type Rejected } from "./payload";
 
 /** A row of email_ingest_log as first stored: raw, not yet interpreted. */
@@ -19,6 +20,12 @@ export interface IngestRow {
 /** How each accepted person in an email was handled (see apply_accept in migration 0004). */
 export type AcceptOutcome = "linked_url" | "linked_name" | "unmatched" | "duplicate";
 
+/** What applying one email did: how each accepted person was handled, and what became of each job. */
+export interface FinishOutcome {
+  accepts: AcceptOutcome[];
+  jobs: JobOutcome[];
+}
+
 export interface IngestStore {
   /** Inserts rows, silently skipping message ids already stored. Returns only the rows that were new. */
   insert(rows: IngestRow[]): Promise<{ id: string; gmail_message_id: string }[]>;
@@ -27,7 +34,7 @@ export interface IngestStore {
    * requests. Never throws: a failure is written onto the stored row so the raw email is kept
    * and can be re-processed later.
    */
-  finish(id: string, processed: Processed, receivedAt: Date): Promise<AcceptOutcome[]>;
+  finish(id: string, processed: Processed, receivedAt: Date): Promise<FinishOutcome>;
   /** Cheap database read (keeps the free project awake) plus pruning of old raw bodies. */
   ping(): Promise<{ pruned: number }>;
 }
@@ -127,6 +134,7 @@ export async function handleIngest(request: Request, deps: IngestDeps): Promise<
     // Only emails stored for the first time are processed; repeats were handled the first time.
     const byMessage = new Map(rows.map((r) => [r.gmail_message_id, r]));
     const accepts: Record<AcceptOutcome, number> = { linked_url: 0, linked_name: 0, unmatched: 0, duplicate: 0 };
+    const jobs: Record<JobOutcome, number> = { inserted: 0, duplicate: 0, duplicate_soft: 0 };
     let jobsSeen = 0;
     for (const { id, gmail_message_id } of fresh) {
       const row = byMessage.get(gmail_message_id);
@@ -134,7 +142,9 @@ export async function handleIngest(request: Request, deps: IngestDeps): Promise<
       try {
         const processed = processEmail(rowToProcessInput(row));
         jobsSeen += processed.jobs.length;
-        for (const outcome of await store.finish(id, processed, received.get(gmail_message_id) ?? new Date())) accepts[outcome]++;
+        const outcome = await store.finish(id, processed, received.get(gmail_message_id) ?? new Date());
+        for (const a of outcome.accepts) accepts[a]++;
+        for (const j of outcome.jobs) jobs[j]++;
       } catch {
         // The raw email is already stored; `npm run reparse` can process it again.
         console.error("ingest: processing failed for one email");
@@ -148,6 +158,7 @@ export async function handleIngest(request: Request, deps: IngestDeps): Promise<
       duplicates: rows.length - fresh.length,
       rejected,
       accepts,
+      jobs,
       jobsSeen,
     });
   } catch {

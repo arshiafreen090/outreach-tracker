@@ -3,6 +3,7 @@
 import { AcceptedCard } from "@/components/AcceptedCard";
 import { AcceptCandidateCard } from "@/components/AcceptCandidateCard";
 import { EditDetails } from "@/components/EditDetails";
+import { JobCard } from "@/components/JobCard";
 import { LogRequestForm } from "@/components/LogRequestForm";
 import { NavLinks } from "@/components/NavLinks";
 import { PendingCard } from "@/components/PendingCard";
@@ -48,7 +49,7 @@ export function PreviewClient({ templates }: { templates: TemplateRow[] }) {
         <div className="topbar-inner">
           <span className="brand">Outreach Tracker · fixture preview</span>
         </div>
-        <NavLinks counts={{ accepted: accepted.length, pending: pending.length, unmatched: 1, followUps: 2 }} />
+        <NavLinks counts={{ accepted: accepted.length, pending: pending.length, unmatched: 1, followUps: 2, jobsNew: 5 }} />
       </header>
       <main className="container stack">
         <h1>Accepted</h1>
@@ -77,6 +78,11 @@ export function PreviewClient({ templates }: { templates: TemplateRow[] }) {
           link={form}
           create={form}
           dismiss={ok}
+        />
+        <h1>Jobs</h1>
+        <JobCard
+          job={{ id: "j1", title: "Machine Learning Intern", company_name: "Dexter's Tech", company_id: null, url: "https://www.linkedin.com/jobs/view/1/", source: "linkedin-alert", posted_at: null, found_at: daysAgo(3), status: "new", location: "India", work_mode: "Remote", saved_search: "engineer intern jobs in Lucknow", role_family: "ml", is_internship: true, seen_in: ["linkedin-alert", "greenhouse:dexter"] }}
+          setStatus={ok}
         />
         <h1>Log a sent request</h1>
         <LogRequestForm action={form} companies={companies} knownProfiles={{ "in/asha-rao": "Asha Rao" }} />

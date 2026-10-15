@@ -26,6 +26,7 @@ const BATCH_MAX_EMAILS = 5;
 const BATCH_MAX_CHARS = 2500000;            // stay well under Vercel's 4.5 MB request body limit
 const SKIP_RAW_OVER_CHARS = 1900000;        // the server rejects anything bigger anyway
 const PING_EVERY_MS = 20 * 60 * 60 * 1000;  // keepalive roughly daily
+const PULL_JOBS_EVERY_MS = 20 * 60 * 60 * 1000; // company job boards, roughly daily
 
 function syncEmails() {
   const cfg = config_();
@@ -80,6 +81,7 @@ function syncEmails() {
     (capped ? '. More remain; the next run continues.' : '.'));
 
   pingIfDue_(cfg, props, startedAt);
+  pullJobsIfDue_(cfg, props, startedAt);
 }
 
 /** Run once by hand: checks the Script Properties, the endpoint and the secret. Sends no email data. */
@@ -147,4 +149,13 @@ function pingIfDue_(cfg, props, now) {
   if (now - last < PING_EVERY_MS) return;
   post_(cfg, '/api/ingest/ping', {});
   props.setProperty('LAST_PING_MS', String(now));
+}
+
+/** Once a day, asks the dashboard to check the company job boards you follow (Jobs > Company job boards). */
+function pullJobsIfDue_(cfg, props, now) {
+  const last = Number(props.getProperty('LAST_JOBS_PULL_MS')) || 0;
+  if (now - last < PULL_JOBS_EVERY_MS) return;
+  const result = post_(cfg, '/api/jobs/pull', {});
+  props.setProperty('LAST_JOBS_PULL_MS', String(now));
+  console.log('Job boards: ' + result.sources + ' checked, ' + result.added + ' new job(s), ' + result.failed + ' failed.');
 }

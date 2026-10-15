@@ -9,6 +9,11 @@ import { isCompanyCategory, type CompanyCategory } from "@/lib/categories";
 import { parseDaysInput } from "@/lib/settings";
 import { isPersonStatus } from "@/lib/status";
 import { createClient } from "@/lib/supabase/server";
+import { isJobStatus } from "@/lib/jobs/filters";
+import { pullAll, pullSource } from "@/lib/jobs/pull";
+import { boardNameFromInput, isSourceKind, SLUG } from "@/lib/jobs/sources";
+import { createPullStore } from "@/lib/jobs/store";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { findUnknownPlaceholders } from "@/lib/templates/engine";
 import { dateInputToDate } from "@/lib/time";
 import { parseProfileUrl } from "@/lib/urls";
@@ -310,6 +315,90 @@ export async function setPersonStatus(personId: string, status: string): Promise
   if (!isPersonStatus(status)) return fail("Unknown status.");
   const { error } = await authed.supabase.rpc("set_person_status", { p_person_id: personId, p_status: status });
   if (error) return fail(mapPersonError(error.message));
+  refresh();
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------- jobs
+
+export async function setJobStatus(jobId: string, status: string): Promise<ActionResult> {
+  const authed = await getAuthedClient();
+  if (!authed) return fail(SIGNED_OUT);
+  if (!isUuid(jobId)) return fail("Invalid job.");
+  if (!isJobStatus(status)) return fail("Unknown status.");
+  const { data, error } = await authed.supabase.from("jobs").update({ status }).eq("id", jobId).select("id");
+  if (error) return fail(error.message);
+  if (!data || data.length === 0) return fail("That job no longer exists. Reload the page.");
+  refresh();
+  return { ok: true };
+}
+
+/**
+ * Adds a company job board and pulls it once so you see right away whether the name was right.
+ * The name is checked against a strict pattern and only ever appended to a vendor's fixed API address.
+ */
+export async function addJobSource(_prev: FormState, formData: FormData): Promise<FormState> {
+  const authed = await getAuthedClient();
+  if (!authed) return { error: SIGNED_OUT };
+
+  const kind = field(formData, "kind");
+  const slug = boardNameFromInput(field(formData, "slug"));
+  const label = field(formData, "company");
+  if (!isSourceKind(kind)) return { error: "Choose Greenhouse, Lever or Ashby." };
+  if (!SLUG.test(slug)) return { error: "That isn't a valid board name. Use the part of the careers-page address after the site name." };
+  if (label.length > MAX_SHORT_TEXT) return { error: "Company must be under 200 characters." };
+
+  const { data, error } = await authed.supabase.from("job_sources").insert({ kind, slug, label: label || null }).select("id, kind, slug, label").single();
+  if (error) return { error: error.code === "23505" ? "That board is already added." : error.message };
+
+  const result = await pullSource(data, createPullStore(createAdminClient()));
+  refresh();
+  return {
+    ok: true,
+    nonce: Date.now(),
+    message: result.ok
+      ? `Added. The board lists ${result.listed} jobs; ${result.relevant} are in your role families and ${result.added} are new.`
+      : `Added, but the first pull failed: ${result.status} Check the name, or remove it and try again.`,
+  };
+}
+
+export async function pullJobSource(sourceId: string): Promise<ActionResult> {
+  const authed = await getAuthedClient();
+  if (!authed) return fail(SIGNED_OUT);
+  if (!isUuid(sourceId)) return fail("Invalid source.");
+  const { data, error } = await authed.supabase.from("job_sources").select("id, kind, slug, label").eq("id", sourceId).maybeSingle();
+  if (error) return fail(error.message);
+  if (!data) return fail("That source no longer exists.");
+  const result = await pullSource(data, createPullStore(createAdminClient()));
+  refresh();
+  return result.ok ? { ok: true } : fail(result.status);
+}
+
+export async function pullAllJobSources(): Promise<ActionResult> {
+  const authed = await getAuthedClient();
+  if (!authed) return fail(SIGNED_OUT);
+  await pullAll(createPullStore(createAdminClient()));
+  refresh();
+  return { ok: true };
+}
+
+export async function setJobSourceEnabled(sourceId: string, enabled: boolean): Promise<ActionResult> {
+  const authed = await getAuthedClient();
+  if (!authed) return fail(SIGNED_OUT);
+  if (!isUuid(sourceId)) return fail("Invalid source.");
+  const { error } = await authed.supabase.from("job_sources").update({ enabled: enabled === true }).eq("id", sourceId);
+  if (error) return fail(error.message);
+  refresh();
+  return { ok: true };
+}
+
+/** Removes the board. Jobs already found stay in your feed. */
+export async function removeJobSource(sourceId: string): Promise<ActionResult> {
+  const authed = await getAuthedClient();
+  if (!authed) return fail(SIGNED_OUT);
+  if (!isUuid(sourceId)) return fail("Invalid source.");
+  const { error } = await authed.supabase.from("job_sources").delete().eq("id", sourceId);
+  if (error) return fail(error.message);
   refresh();
   return { ok: true };
 }

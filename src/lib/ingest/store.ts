@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { fromLinkedIn, upsertArgs, type JobOutcome } from "../jobs/save";
 import type { AcceptOutcome, IngestStore } from "./handler";
 import type { Processed } from "./linkedin/process";
 
@@ -25,6 +26,7 @@ export function createIngestStore(db: SupabaseClient): IngestStore {
       try {
         // Apply first, record second: if matching fails, the row stays 'failed' and a re-parse retries it.
         const outcomes: AcceptOutcome[] = [];
+        const jobOutcomes: JobOutcome[] = [];
         for (const a of processed.accepters) {
           const { data, error } = await db.rpc("apply_accept", {
             p_ingest_id: id,
@@ -40,6 +42,12 @@ export function createIngestStore(db: SupabaseClient): IngestStore {
           outcomes.push(data as AcceptOutcome);
         }
 
+        for (const job of processed.jobs) {
+          const { data, error } = await db.rpc("upsert_job", upsertArgs(fromLinkedIn(job), receivedAt, id));
+          if (error) throw new Error(error.message);
+          jobOutcomes.push(data as JobOutcome);
+        }
+
         const current = await db.from("email_ingest_log").select("parse_result").eq("id", id).single();
         if (current.error) throw new Error(current.error.message);
         const { error } = await db
@@ -48,15 +56,15 @@ export function createIngestStore(db: SupabaseClient): IngestStore {
             kind: processed.kind,
             parse_status: processed.parse_status,
             parse_error: processed.parse_error,
-            parse_result: { ...(current.data.parse_result as Record<string, unknown>), ...processed.result, outcomes },
+            parse_result: { ...(current.data.parse_result as Record<string, unknown>), ...processed.result, outcomes, job_outcomes: jobOutcomes },
           })
           .eq("id", id);
         if (error) throw new Error(error.message);
-        return outcomes;
+        return { accepts: outcomes, jobs: jobOutcomes };
       } catch (e) {
         console.error("ingest: could not apply an email");
         await markFailed(id, `Could not apply: ${(e as Error).message}`).catch(() => {});
-        return [];
+        return { accepts: [], jobs: [] };
       }
     },
 

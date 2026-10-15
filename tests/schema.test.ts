@@ -54,7 +54,7 @@ describe("migration", () => {
         where n.nspname = 'public' and c.relkind = 'r'`,
     );
     expect(r.rows.map((x) => x.relname).sort()).toEqual(
-      ["accept_candidates", "app_owner", "companies", "email_ingest_log", "jobs", "messages_sent", "outreach_events", "people", "settings", "template_versions", "templates"],
+      ["accept_candidates", "app_owner", "companies", "email_ingest_log", "job_sources", "jobs", "messages_sent", "outreach_events", "people", "settings", "template_versions", "templates"],
     );
     expect(r.rows.filter((x) => !x.relrowsecurity)).toEqual([]);
   });

@@ -9,7 +9,7 @@ import { createClient } from "@supabase/supabase-js";
 import { checkEnv, judgeSchema, type Check } from "../src/lib/doctor-checks";
 import { parseSeed } from "../src/lib/templates/seed-parser";
 
-const TABLES = ["companies", "people", "email_ingest_log", "outreach_events", "templates", "template_versions", "messages_sent", "jobs", "settings", "app_owner", "accept_candidates"];
+const TABLES = ["companies", "people", "email_ingest_log", "outreach_events", "templates", "template_versions", "messages_sent", "jobs", "settings", "app_owner", "accept_candidates", "job_sources"];
 const SETTING_KEYS = ["follow_up_days", "pending_nudge_days", "show_photos"];
 
 const results: Check[] = [...checkEnv(process.env)];
@@ -91,6 +91,16 @@ else if (signups === "on") {
   const probe = await admin.rpc("set_person_status", { p_person_id: "00000000-0000-0000-0000-000000000000", p_status: "new" });
   if (probe.error?.message.includes("person_not_found")) ok("Follow-up actions (migration 0005)", "callable");
   else fail("Follow-up actions (migration 0005)", `${probe.error?.message ?? "unexpected success"}. Run 'npm run sql:copy:latest' and paste it into the SQL Editor`);
+}
+
+// migration 0006: the jobs feed. An empty source is rejected before anything is written.
+{
+  const probe = await admin.rpc("upsert_job", {
+    p_source: "", p_external_id: "", p_title: "", p_company: null, p_location: null, p_work_mode: null, p_url: null, p_saved_search: null,
+    p_role_family: "other", p_is_internship: false, p_soft_key: null, p_posted_at: null, p_found_at: null, p_ingest_id: null,
+  });
+  if (probe.error?.message.includes("invalid_job")) ok("Jobs feed (migration 0006)", "callable");
+  else fail("Jobs feed (migration 0006)", `${probe.error?.message ?? "unexpected success"}. Run 'npm run sql:copy:latest' and paste it into the SQL Editor`);
 }
 
 // 3. Settings rows

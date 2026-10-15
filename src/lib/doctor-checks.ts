@@ -45,11 +45,12 @@ export function judgeSchema(problems: ReadonlyMap<string, string>, total: number
   if (problems.size === total) {
     return fail(name, "NONE of the tables or views exist in this project, so the SQL has not been applied here. Run 'npm run sql:copy', paste it into THIS project's SQL Editor and press Run");
   }
-  if (problems.has("app_owner") && [...problems.keys()].every((n) => n === "app_owner" || n === "accept_candidates")) {
-    return fail(name, "migration 0003 (owner gate)" + (problems.has("accept_candidates") ? " and 0004 (accepts)" : "") + " haven't been applied. Paste the files from supabase/migrations/ in order into the SQL Editor (npm run sql:copy:latest copies only the newest)");
-  }
-  if ([...problems.keys()].every((n) => n === "accept_candidates")) {
-    return fail(name, "migration 0004 (matching accepted invitations) hasn't been applied. Run 'npm run sql:copy:latest', paste it into the SQL Editor and press Run");
+  // Tables that belong to a later migration: if only those are missing, say which file to run.
+  const LATER: Record<string, string> = { app_owner: "0003 (owner gate)", accept_candidates: "0004 (accepts)", job_sources: "0006 (jobs feed)" };
+  const missing = [...problems.keys()];
+  if (missing.every((n) => n in LATER)) {
+    const files = missing.map((n) => LATER[n]).join(" and ");
+    return fail(name, `migration${missing.length > 1 ? "s" : ""} ${files} ${missing.length > 1 ? "haven't" : "hasn't"} been applied. Paste ${missing.length > 1 ? "those files from supabase/migrations/ in order" : "it"} into the SQL Editor (npm run sql:copy:latest copies only the newest)`);
   }
   const list = [...problems].map(([n, e]) => `${n} (${e})`).join("; ");
   return fail(name, `missing or unreadable: ${list}. If the SQL ran with an error, nothing from it is kept: fix the error and run all of it again`);

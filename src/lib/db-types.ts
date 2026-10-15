@@ -71,3 +71,35 @@ export interface AcceptCandidate {
   match_method: "url" | "name" | "manual" | null;
   person_id: string | null;
 }
+
+/** A row of the jobs table (migration 0006 added most of these columns). */
+export interface JobRow {
+  id: string;
+  title: string;
+  company_name: string | null;
+  company_id: string | null;
+  url: string | null;
+  source: string;
+  posted_at: string | null;
+  found_at: string;
+  status: "new" | "seen" | "applied" | "dismissed";
+  location: string | null;
+  work_mode: string | null;
+  saved_search: string | null;
+  role_family: "data_analytics" | "product_analytics" | "data_science" | "ml" | "ai" | "swe" | "other";
+  is_internship: boolean;
+  seen_in: string[];
+}
+
+/** A company job board you follow. */
+export interface JobSourceRow {
+  id: string;
+  kind: "greenhouse" | "lever" | "ashby";
+  slug: string;
+  label: string | null;
+  enabled: boolean;
+  last_pulled_at: string | null;
+  last_status: string | null;
+  last_job_count: number | null;
+  last_new_count: number | null;
+}

@@ -36,6 +36,7 @@ function step(ok: boolean, name: string, detail = "") {
 async function cleanup() {
   await admin.from("people").delete().in("profile_url_key", [KEY, TARGET_KEY, ...Object.values(CAND_KEYS)]); // cascades events and messages
   await admin.from("accept_candidates").delete().in("profile_url_key", Object.values(CAND_KEYS));
+  await admin.from("jobs").delete().in("source", ["smoke-test", "smoke-test-2"]);
   await admin.from("companies").delete().eq("name", COMPANY);
 }
 
@@ -134,6 +135,33 @@ try {
     const again = await owner.rpc("mark_replied", { p_person_id: id });
     o = await overview(id);
     step(!interview.error && !again.error && o.status === "interview", "set_person_status works, and a later reply never pulls them back", interview.error?.message ?? again.error?.message);
+  }
+
+  // Jobs feed (needs migration 0006)
+  const emptyJob = { p_source: "", p_external_id: "", p_title: "", p_company: null, p_location: null, p_work_mode: null, p_url: null, p_saved_search: null, p_role_family: "other", p_is_internship: false, p_soft_key: null, p_posted_at: null, p_found_at: null, p_ingest_id: null };
+  const jobProbe = await admin.rpc("upsert_job", emptyJob);
+  if (!String(jobProbe.error?.message).includes("invalid_job")) {
+    step(false, "Jobs feed", `migration 0006 is not applied (${jobProbe.error?.message ?? "unexpected"})`);
+  } else {
+    const SOFT = "smoke test co|smoke test data analyst|pune";
+    const saveJob = (source: string, externalId: string) =>
+      admin.rpc("upsert_job", { ...emptyJob, p_source: source, p_external_id: externalId, p_title: "Smoke Test Data Analyst", p_company: COMPANY, p_location: "Pune", p_work_mode: "Hybrid", p_url: "https://www.linkedin.com/jobs/view/1/", p_saved_search: "smoke", p_role_family: "data_analytics", p_soft_key: SOFT, p_found_at: new Date().toISOString() });
+
+    const added = await saveJob("smoke-test", "1");
+    step(added.data === "inserted", "A new job is saved", added.error?.message ?? String(added.data));
+    const repeat = await saveJob("smoke-test", "1");
+    step(repeat.data === "duplicate", "The same job again is ignored", String(repeat.data));
+    const elsewhere = await saveJob("smoke-test-2", "99");
+    step(elsewhere.data === "duplicate_soft", "The same opening from another source is merged, not duplicated", String(elsewhere.data));
+
+    const mine = await owner.from("jobs").select("id, status, seen_in").eq("dedupe_key", "smoke-test:1").single();
+    step(mine.data?.seen_in?.join(",") === "smoke-test,smoke-test-2" && mine.data?.status === "new", "The owner sees it once, with both sources recorded", mine.error?.message ?? JSON.stringify(mine.data));
+    const applied = await owner.from("jobs").update({ status: "applied" }).eq("id", mine.data?.id as string).select("status");
+    await saveJob("smoke-test", "1");
+    const after = await owner.from("jobs").select("status").eq("id", mine.data?.id as string).single();
+    step(!applied.error && after.data?.status === "applied", "Marking it applied sticks when the job shows up again", applied.error?.message ?? after.data?.status);
+    const forbidden = await owner.rpc("upsert_job", { ...emptyJob, p_source: "x", p_external_id: "1", p_title: "T" });
+    step(Boolean(forbidden.error), "A signed-in user cannot add jobs directly (ingest and pull only)", forbidden.error?.message ?? "it succeeded");
   }
 
   // Unknown accepts: the three buttons on that page, as the signed-in owner (needs migration 0004)

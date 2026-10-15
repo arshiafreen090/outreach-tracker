@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { MIN_SECRET_LENGTH, verifyBearer } from "@/lib/ingest/auth";
 import type { Processed } from "@/lib/ingest/linkedin/process";
@@ -54,7 +56,7 @@ function fakeStore(overrides: Partial<IngestStore> = {}) {
     }),
     finish: vi.fn(async (id: string, processed: Processed) => {
       finished.push({ id, processed });
-      return processed.accepters.map(() => "unmatched" as const);
+      return { accepts: processed.accepters.map(() => "unmatched" as const), jobs: processed.jobs.map(() => "inserted" as const) };
     }),
     ping: vi.fn(async () => ({ pruned: 2 })),
     ...overrides,
@@ -314,5 +316,36 @@ describe("handleIngest: processing what was stored", () => {
     const viaRow = processEmail(rowToProcessInput(row));
     const viaMail = processEmail({ ...direct, html: direct.html });
     expect(viaRow).toEqual(viaMail);
+  });
+});
+
+describe("handleIngest: job alerts", () => {
+  const html = readFileSync(path.join(process.cwd(), "tests", "fixtures", "linkedin", "job-alert.html"), "utf8").replace(/=/g, "=3D");
+  const alert = (id: string) => ({
+    id,
+    internal_date: String(NOW.getTime() - 1000),
+    raw: rawEmail({
+      from: '"LinkedIn Job Alerts" <jobalerts-noreply@linkedin.com>',
+      subject: "Senior Data Analyst, Support at Acme",
+      html,
+      extraHeaders: ["X-LinkedIn-Class: SAVEDSEARCH", "X-LinkedIn-Template: email_job_alert_digest_01"],
+    }),
+  });
+
+  it("hands every job in the alert to be saved, and reports what happened to each", async () => {
+    const { store, finished } = fakeStore();
+    const res = await handleIngest(request({ emails: [alert("aaaaaa111111")] }), deps(store));
+    expect(finished).toHaveLength(1);
+    expect(finished[0]!.processed).toMatchObject({ kind: "job_alert", parse_status: "parsed" });
+    expect(finished[0]!.processed.jobs.map((j) => j.id)).toEqual(["4471486393", "4476265857", "4477672701"]);
+    expect(await res.json()).toMatchObject({ inserted: 1, jobsSeen: 3, jobs: { inserted: 3, duplicate: 0, duplicate_soft: 0 } });
+  });
+
+  it("counts jobs the database already had", async () => {
+    const { store } = fakeStore({
+      finish: vi.fn(async () => ({ accepts: [], jobs: ["inserted", "duplicate", "duplicate_soft"] as ("inserted" | "duplicate" | "duplicate_soft")[] })),
+    });
+    const res = await handleIngest(request({ emails: [alert("aaaaaa111111")] }), deps(store));
+    expect(await res.json()).toMatchObject({ jobs: { inserted: 1, duplicate: 1, duplicate_soft: 1 } });
   });
 });
