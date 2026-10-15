@@ -24,6 +24,8 @@ const owner = createClient(url, publishable, options);
 const KEY = "in/smoke-test-do-not-keep";
 const COMPANY = "Smoke Test Co";
 const MESSAGE = "smoke test message with trailing spaces   ";
+const TARGET_KEY = "in/smoke-test-link-target";
+const CAND_KEYS = { link: "in/smoke-test-cand-link", create: "in/smoke-test-cand-create", dismiss: "in/smoke-test-cand-dismiss" };
 
 let failed = 0;
 function step(ok: boolean, name: string, detail = "") {
@@ -32,7 +34,8 @@ function step(ok: boolean, name: string, detail = "") {
 }
 
 async function cleanup() {
-  await admin.from("people").delete().eq("profile_url_key", KEY); // cascades events and messages
+  await admin.from("people").delete().in("profile_url_key", [KEY, TARGET_KEY, ...Object.values(CAND_KEYS)]); // cascades events and messages
+  await admin.from("accept_candidates").delete().in("profile_url_key", Object.values(CAND_KEYS));
   await admin.from("companies").delete().eq("name", COMPANY);
 }
 
@@ -109,6 +112,49 @@ try {
     stored.error?.message,
   );
 
+  // Unknown accepts: the three buttons on that page, as the signed-in owner (needs migration 0004)
+  const probe = await admin.from("accept_candidates").select("id").limit(1);
+  if (probe.error) {
+    step(false, "Unknown accepts", `migration 0004 is not applied (${probe.error.message})`);
+  } else {
+    const candidate = async (key: string, name: string) => {
+      const r = await admin.rpc("apply_accept", {
+        p_ingest_id: null, p_full_name: name, p_headline: "Tester @Smoke", p_company_hint: "Smoke Test Co",
+        p_profile_url: `https://www.linkedin.com/${key}/`, p_profile_url_key: key, p_photo_url: null, p_accepted_at: new Date().toISOString(),
+      });
+      const row = await admin.from("accept_candidates").select("id").eq("profile_url_key", key).single();
+      return { result: r.data as string, id: row.data?.id as string };
+    };
+
+    const target = await owner.rpc("log_request", {
+      p_full_name: "Smoke Link Target", p_profile_url: `https://www.linkedin.com/${TARGET_KEY}/`, p_profile_url_key: TARGET_KEY,
+      p_role: null, p_company_name: null, p_company_category: "other_relevant", p_requested_at: new Date().toISOString(),
+    });
+    const a = await candidate(CAND_KEYS.link, "Smoke Candidate Link");
+    step(a.result === "unmatched", "A stranger's accept is held as unmatched", a.result);
+    const linked = await owner.rpc("link_accept", { p_candidate_id: a.id, p_person_id: target.data as string });
+    const targetAfter = await owner.from("people_overview").select("status, accepted_at").eq("id", target.data as string).single();
+    step(!linked.error && targetAfter.data?.status === "accepted", "Owner can link it to a request (link_accept)", linked.error?.message);
+    const again = await owner.rpc("link_accept", { p_candidate_id: a.id, p_person_id: target.data as string });
+    step(Boolean(again.error?.message.includes("candidate_not_unmatched")), "Resolving it twice is refused", again.error?.message ?? "it succeeded");
+
+    const b = await candidate(CAND_KEYS.create, "Smoke Candidate Create");
+    const created = await owner.rpc("create_person_from_accept", { p_candidate_id: b.id, p_company_name: COMPANY, p_company_category: "small_startup" });
+    const createdRow = await owner.from("people_overview").select("status, role, company_id, profile_url_key").eq("id", created.data as string).single();
+    step(!created.error && createdRow.data?.status === "accepted" && createdRow.data?.role === "Tester @Smoke" && Boolean(createdRow.data?.company_id) && createdRow.data?.profile_url_key === CAND_KEYS.create, "Owner can add it as a new Accepted person (create_person_from_accept)", created.error?.message);
+
+    const c = await candidate(CAND_KEYS.dismiss, "Smoke Candidate Dismiss");
+    const dismissed = await owner.rpc("dismiss_accept", { p_candidate_id: c.id });
+    const dismissedRow = await owner.from("accept_candidates").select("status").eq("id", c.id).single();
+    step(!dismissed.error && dismissedRow.data?.status === "dismissed", "Owner can dismiss it (dismiss_accept)", dismissed.error?.message);
+
+    const blocked = await owner.rpc("apply_accept", {
+      p_ingest_id: null, p_full_name: "x", p_headline: null, p_company_hint: null, p_profile_url: "https://x", p_profile_url_key: "in/smoke-forbidden",
+      p_photo_url: null, p_accepted_at: new Date().toISOString(),
+    });
+    step(Boolean(blocked.error), "A signed-in user cannot call apply_accept (ingest route only)", blocked.error?.message ?? "it succeeded");
+  }
+
   await owner.auth.signOut();
 } catch (e) {
   step(false, "Smoke test aborted", (e as Error).message);
@@ -116,7 +162,8 @@ try {
   await cleanup();
   const left = await admin.from("people").select("id", { count: "exact" }).eq("profile_url_key", KEY);
   const leftCompany = await admin.from("companies").select("id", { count: "exact" }).eq("name", COMPANY);
-  step((left.data ?? []).length === 0 && (leftCompany.data ?? []).length === 0, "Test rows removed");
+  const leftCandidates = await admin.from("accept_candidates").select("id").in("profile_url_key", Object.values(CAND_KEYS));
+  step((left.data ?? []).length === 0 && (leftCompany.data ?? []).length === 0 && (leftCandidates.data ?? []).length === 0, "Test rows removed");
 }
 
 console.log(`\n${failed === 0 ? "Smoke test passed." : `${failed} step(s) failed.`}`);
