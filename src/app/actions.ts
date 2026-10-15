@@ -221,3 +221,53 @@ export async function saveTemplateVersion(_prev: FormState, formData: FormData):
   refresh();
   return { ok: true, message: "Saved as a new version.", nonce: Date.now() };
 }
+
+// ---------------------------------------------------------------- unknown accepts
+
+const mapAcceptError = (message: string): string => {
+  if (message.includes("candidate_not_unmatched")) return "That accept was already handled. Reload the page.";
+  if (message.includes("candidate_not_found")) return "That accept no longer exists.";
+  if (message.includes("person_not_found")) return "That person no longer exists.";
+  return message;
+};
+
+/** Bound with the candidate id: linkAccept.bind(null, id). The select posts `person_id`. */
+export async function linkAccept(candidateId: string, _prev: FormState, formData: FormData): Promise<FormState> {
+  const authed = await getAuthedClient();
+  if (!authed) return { error: SIGNED_OUT };
+  const personId = field(formData, "person_id");
+  if (!isUuid(candidateId) || !isUuid(personId)) return { error: "Pick which request this is." };
+
+  const { error } = await authed.supabase.rpc("link_accept", { p_candidate_id: candidateId, p_person_id: personId });
+  if (error) return { error: mapAcceptError(error.message) };
+  refresh();
+  return { ok: true, message: "Linked.", nonce: Date.now() };
+}
+
+/** Bound with the candidate id. The company field is prefilled from the email's headline guess, never applied unseen. */
+export async function createPersonFromAccept(candidateId: string, _prev: FormState, formData: FormData): Promise<FormState> {
+  const authed = await getAuthedClient();
+  if (!authed) return { error: SIGNED_OUT };
+  if (!isUuid(candidateId)) return { error: "Invalid accept." };
+  const company = field(formData, "company");
+  if (company.length > MAX_SHORT_TEXT) return { error: "Company must be under 200 characters." };
+
+  const { error } = await authed.supabase.rpc("create_person_from_accept", {
+    p_candidate_id: candidateId,
+    p_company_name: company || null,
+    p_company_category: categoryOrDefault(field(formData, "company_category")),
+  });
+  if (error) return { error: mapAcceptError(error.message) };
+  refresh();
+  return { ok: true, message: "Added to Accepted.", nonce: Date.now() };
+}
+
+export async function dismissAccept(candidateId: string): Promise<ActionResult> {
+  const authed = await getAuthedClient();
+  if (!authed) return fail(SIGNED_OUT);
+  if (!isUuid(candidateId)) return fail("Invalid accept.");
+  const { error } = await authed.supabase.rpc("dismiss_accept", { p_candidate_id: candidateId });
+  if (error) return fail(mapAcceptError(error.message));
+  refresh();
+  return { ok: true };
+}

@@ -1,6 +1,7 @@
 "use client";
 
 import { AcceptedCard } from "@/components/AcceptedCard";
+import { AcceptCandidateCard } from "@/components/AcceptCandidateCard";
 import { EditDetails } from "@/components/EditDetails";
 import { LogRequestForm } from "@/components/LogRequestForm";
 import { NavLinks } from "@/components/NavLinks";
@@ -47,7 +48,7 @@ export function PreviewClient({ templates }: { templates: TemplateRow[] }) {
         <div className="topbar-inner">
           <span className="brand">Outreach Tracker · fixture preview</span>
         </div>
-        <NavLinks counts={{ accepted: accepted.length, pending: pending.length }} />
+        <NavLinks counts={{ accepted: accepted.length, pending: pending.length, unmatched: 1 }} />
       </header>
       <main className="container stack">
         <h1>Accepted</h1>
@@ -67,6 +68,16 @@ export function PreviewClient({ templates }: { templates: TemplateRow[] }) {
         {pending.map((p) => (
           <PendingCard key={p.id} person={p} company={byId(p.company_id)} showPhotos={false} nudgeDays={7} markAccepted={ok} editSlot={edit(p)} />
         ))}
+        <h1>Unknown accepts</h1>
+        <AcceptCandidateCard
+          candidate={{ id: "k1", full_name: "Mrigank Bhargava", headline: "Founding team at Cardboard", company_hint: "Cardboard", profile_url: "https://www.linkedin.com/in/example/", profile_url_key: "in/example", photo_url: null, accepted_at: daysAgo(3), status: "unmatched", match_method: null, person_id: null }}
+          pending={[{ id: "p4", label: "Karan Mehta (Swiggy)" }, { id: "p5", label: "Sana Qureshi (Zepto)" }]}
+          companies={companies}
+          showPhotos={false}
+          link={form}
+          create={form}
+          dismiss={ok}
+        />
         <h1>Log a sent request</h1>
         <LogRequestForm action={form} companies={companies} knownProfiles={{ "in/asha-rao": "Asha Rao" }} />
       </main>

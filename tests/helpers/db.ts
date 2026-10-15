@@ -6,11 +6,12 @@ import { PGlite } from "@electric-sql/pglite";
 export const SUPABASE_PRELUDE = `
   create role anon nologin;
   create role authenticated nologin;
+  create role service_role nologin bypassrls;
   -- a role that holds privileges but has NO RLS policy: proves RLS is really enforced
   create role outsider nologin;
-  grant usage on schema public to anon, authenticated, outsider;
-  alter default privileges in schema public grant all on tables to anon, authenticated, outsider;
-  alter default privileges in schema public grant execute on functions to anon, authenticated, outsider;
+  grant usage on schema public to anon, authenticated, outsider, service_role;
+  alter default privileges in schema public grant all on tables to anon, authenticated, outsider, service_role;
+  alter default privileges in schema public grant execute on functions to anon, authenticated, outsider, service_role;
 
   -- Supabase's auth.jwt(): the claims of the verified token for the current request
   create schema auth;

@@ -21,6 +21,16 @@ describe("judgeSchema", () => {
     expect(c.status).toBe("fail");
     expect(c.detail).toMatch(/0003/);
   });
+  it("points at migration 0004 when only accept_candidates is missing", () => {
+    const c = judgeSchema(new Map([["accept_candidates", err]]), 13, 11);
+    expect(c.status).toBe("fail");
+    expect(c.detail).toMatch(/0004/);
+    expect(c.detail).not.toMatch(/0003/);
+  });
+  it("mentions both when both owner gate and accepts are missing", () => {
+    const c = judgeSchema(new Map([["app_owner", err], ["accept_candidates", err]]), 13, 11);
+    expect(c.detail).toMatch(/0003.*0004/);
+  });
   it("lists exactly what is missing otherwise", () => {
     const c = judgeSchema(new Map([["people", err], ["jobs", err]]), 12, 10);
     expect(c.status).toBe("fail");

@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { MIN_SECRET_LENGTH, verifyBearer } from "@/lib/ingest/auth";
-import { handleIngest, handlePing, MAX_STORED_BODY_CHARS, type IngestRow, type IngestStore } from "@/lib/ingest/handler";
+import type { Processed } from "@/lib/ingest/linkedin/process";
+import { handleIngest, handlePing, MAX_STORED_BODY_CHARS, rowToProcessInput, toRow, type IngestRow, type IngestStore } from "@/lib/ingest/handler";
+import { processEmail } from "@/lib/ingest/linkedin/process";
 import { parseRawEmail } from "@/lib/ingest/mime";
 import { LIMITS, parseIngestPayload } from "@/lib/ingest/payload";
 
@@ -44,15 +46,20 @@ function request(body: unknown, headers: Record<string, string> = { authorizatio
 
 function fakeStore(overrides: Partial<IngestStore> = {}) {
   const rows: IngestRow[] = [];
+  const finished: { id: string; processed: Processed }[] = [];
   const store: IngestStore = {
     insert: vi.fn(async (r: IngestRow[]) => {
       rows.push(...r);
-      return r.length;
+      return r.map((x, i) => ({ id: `row-${i}`, gmail_message_id: x.gmail_message_id }));
+    }),
+    finish: vi.fn(async (id: string, processed: Processed) => {
+      finished.push({ id, processed });
+      return processed.accepters.map(() => "unmatched" as const);
     }),
     ping: vi.fn(async () => ({ pruned: 2 })),
     ...overrides,
   };
-  return { store, rows };
+  return { store, rows, finished };
 }
 const deps = (store: IngestStore, secret: string | undefined = SECRET) => ({ secret, getStore: () => store, now: () => NOW });
 
@@ -155,7 +162,7 @@ describe("handleIngest", () => {
     const { store, rows } = fakeStore();
     const res = await handleIngest(request({ emails: [item("18f3a9c2d4e5b601")] }), deps(store));
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, received: 1, inserted: 1, duplicates: 0, rejected: [] });
+    expect(await res.json()).toMatchObject({ ok: true, received: 1, inserted: 1, duplicates: 0, rejected: [] });
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
       gmail_message_id: "18f3a9c2d4e5b601",
@@ -170,7 +177,7 @@ describe("handleIngest", () => {
   });
 
   it("reports duplicates the store skipped", async () => {
-    const { store } = fakeStore({ insert: vi.fn(async () => 1) });
+    const { store } = fakeStore({ insert: vi.fn(async () => [{ id: "r1", gmail_message_id: "aaaaaa111111" }]) });
     const res = await handleIngest(request({ emails: [item("aaaaaa111111"), item("bbbbbb222222")] }), deps(store));
     expect(await res.json()).toMatchObject({ received: 2, inserted: 1, duplicates: 1 });
   });
@@ -249,5 +256,63 @@ describe("handlePing", () => {
     expect(res.status).toBe(500);
     expect(JSON.stringify(await res.json())).not.toMatch(/10\.0\.0\.1/);
     spy.mockRestore();
+  });
+});
+
+describe("handleIngest: processing what was stored", () => {
+  const acceptHeaders = ["X-LinkedIn-Class: INVITE-ACCEPT", "X-LinkedIn-Template: email_accept_invite_single_01"];
+  const accept = (id: string, opts: Parameters<typeof rawEmail>[0] = {}) => ({
+    id,
+    internal_date: String(NOW.getTime() - 1000),
+    raw: rawEmail({ extraHeaders: acceptHeaders, ...opts }),
+  });
+
+  it("stores LinkedIn's own labels so a stored email can be re-processed later", async () => {
+    const { store, rows } = fakeStore();
+    await handleIngest(request({ emails: [accept("aaaaaa111111")] }), deps(store));
+    expect(rows[0]!.parse_result).toMatchObject({ linkedin_class: "INVITE-ACCEPT", linkedin_template: "email_accept_invite_single_01" });
+  });
+
+  it("processes new emails and passes the accepted people on to be matched", async () => {
+    const { store, finished } = fakeStore();
+    const res = await handleIngest(request({ emails: [accept("aaaaaa111111")] }), deps(store));
+    expect(finished).toHaveLength(1);
+    expect(finished[0]!.processed).toMatchObject({ kind: "accept", parse_status: "parsed" });
+    expect(finished[0]!.processed.accepters.map((a) => a.profileKey)).toEqual(["in/priya-sharma"]);
+    expect(await res.json()).toMatchObject({ inserted: 1, accepts: { unmatched: 1, linked_url: 0, linked_name: 0, duplicate: 0 } });
+  });
+
+  it("does not process emails that were already stored", async () => {
+    const { store, finished } = fakeStore({ insert: vi.fn(async () => []) });
+    const res = await handleIngest(request({ emails: [accept("aaaaaa111111")] }), deps(store));
+    expect(finished).toHaveLength(0);
+    expect(await res.json()).toMatchObject({ inserted: 0, duplicates: 1 });
+  });
+
+  it("stores a forged 'LinkedIn' email but never lets it create an accept", async () => {
+    const { store, finished } = fakeStore();
+    await handleIngest(request({ emails: [accept("aaaaaa111111", { from: '"LinkedIn" <invitations@linkedin.com.evil.com>' })] }), deps(store));
+    expect(finished[0]!.processed).toMatchObject({ kind: "other", parse_status: "ignored", accepters: [] });
+  });
+
+  it("still answers 200 if processing blows up, because the raw email is already safe", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { store, rows } = fakeStore({ finish: vi.fn(async () => { throw new Error("boom"); }) });
+    const res = await handleIngest(request({ emails: [accept("aaaaaa111111")] }), deps(store));
+    expect(res.status).toBe(200);
+    expect(rows).toHaveLength(1);
+    spy.mockRestore();
+  });
+
+  it("rowToProcessInput rebuilds exactly what processing saw (so reparse agrees with ingest)", async () => {
+    const { rows } = fakeStore();
+    const { store } = fakeStore();
+    await handleIngest(request({ emails: [accept("aaaaaa111111")] }), deps(store));
+    const direct = await parseRawEmail(accept("aaaaaa111111").raw);
+    const row = toRow({ id: "aaaaaa111111", internalDateMs: NOW.getTime(), raw: "" }, direct);
+    rows.push(row);
+    const viaRow = processEmail(rowToProcessInput(row));
+    const viaMail = processEmail({ ...direct, html: direct.html });
+    expect(viaRow).toEqual(viaMail);
   });
 });

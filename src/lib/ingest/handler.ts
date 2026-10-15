@@ -1,4 +1,5 @@
 import { verifyBearer } from "./auth";
+import { processEmail, type Processed } from "./linkedin/process";
 import { parseRawEmail, type ParsedEmail } from "./mime";
 import { LIMITS, parseIngestPayload, type IncomingEmail, type Rejected } from "./payload";
 
@@ -15,9 +16,18 @@ export interface IngestRow {
   parse_result: Record<string, unknown>;
 }
 
+/** How each accepted person in an email was handled (see apply_accept in migration 0004). */
+export type AcceptOutcome = "linked_url" | "linked_name" | "unmatched" | "duplicate";
+
 export interface IngestStore {
-  /** Inserts rows, silently skipping message ids already stored. Returns how many were new. */
-  insert(rows: IngestRow[]): Promise<number>;
+  /** Inserts rows, silently skipping message ids already stored. Returns only the rows that were new. */
+  insert(rows: IngestRow[]): Promise<{ id: string; gmail_message_id: string }[]>;
+  /**
+   * Records what an email turned out to be and applies it: accepted people are matched to your
+   * requests. Never throws: a failure is written onto the stored row so the raw email is kept
+   * and can be re-processed later.
+   */
+  finish(id: string, processed: Processed, receivedAt: Date): Promise<AcceptOutcome[]>;
   /** Cheap database read (keeps the free project awake) plus pruning of old raw bodies. */
   ping(): Promise<{ pruned: number }>;
 }
@@ -53,7 +63,30 @@ export function toRow(email: IncomingEmail, parsed: ParsedEmail): IngestRow {
       from_name: parsed.fromName,
       message_id: parsed.messageId,
       authentication_results: parsed.authenticationResults,
+      linkedin_class: parsed.linkedinClass,
+      linkedin_template: parsed.linkedinTemplate,
     },
+  };
+}
+
+/** What the processor needs, rebuilt from a stored row (also used by `npm run reparse`). */
+export function rowToProcessInput(row: {
+  from_address: string | null;
+  subject: string | null;
+  raw_body: string | null;
+  parse_result: Record<string, unknown> | null;
+}) {
+  const r = row.parse_result ?? {};
+  const str = (v: unknown) => (typeof v === "string" ? v : null);
+  const kind = str(r.body_kind);
+  return {
+    fromAddress: row.from_address,
+    subject: row.subject,
+    html: kind === "html" ? row.raw_body : null,
+    text: kind === "text" ? row.raw_body : null,
+    authenticationResults: str(r.authentication_results),
+    linkedinClass: str(r.linkedin_class),
+    linkedinTemplate: str(r.linkedin_template),
   };
 }
 
@@ -77,17 +110,46 @@ export async function handleIngest(request: Request, deps: IngestDeps): Promise<
 
   const rejected: Rejected[] = [...payload.rejected];
   const rows: IngestRow[] = [];
+  const received = new Map<string, Date>();
   for (const email of payload.emails) {
     try {
       rows.push(toRow(email, await parseRawEmail(email.raw)));
+      received.set(email.id, new Date(email.internalDateMs));
     } catch {
       rejected.push({ id: email.id, reason: "unreadable message" });
     }
   }
 
   try {
-    const inserted = rows.length > 0 ? await deps.getStore().insert(rows) : 0;
-    return json(200, { ok: true, received: payload.emails.length + payload.rejected.length, inserted, duplicates: rows.length - inserted, rejected });
+    const store = rows.length > 0 ? deps.getStore() : null;
+    const fresh = store ? await store.insert(rows) : [];
+
+    // Only emails stored for the first time are processed; repeats were handled the first time.
+    const byMessage = new Map(rows.map((r) => [r.gmail_message_id, r]));
+    const accepts: Record<AcceptOutcome, number> = { linked_url: 0, linked_name: 0, unmatched: 0, duplicate: 0 };
+    let jobsSeen = 0;
+    for (const { id, gmail_message_id } of fresh) {
+      const row = byMessage.get(gmail_message_id);
+      if (!row || !store) continue;
+      try {
+        const processed = processEmail(rowToProcessInput(row));
+        jobsSeen += processed.jobs.length;
+        for (const outcome of await store.finish(id, processed, received.get(gmail_message_id) ?? new Date())) accepts[outcome]++;
+      } catch {
+        // The raw email is already stored; `npm run reparse` can process it again.
+        console.error("ingest: processing failed for one email");
+      }
+    }
+
+    return json(200, {
+      ok: true,
+      received: payload.emails.length + payload.rejected.length,
+      inserted: fresh.length,
+      duplicates: rows.length - fresh.length,
+      rejected,
+      accepts,
+      jobsSeen,
+    });
   } catch {
     // Details stay in the server log; the caller (and anyone probing) gets nothing useful.
     console.error("ingest: database write failed");

@@ -29,7 +29,9 @@ export function parseProfileUrl(input: string): ProfileUrl | null {
   const host = u.hostname.toLowerCase();
   if (host !== "linkedin.com" && !host.endsWith(".linkedin.com")) return null;
 
-  const [first, slug] = u.pathname.split("/").filter(Boolean);
+  // LinkedIn's emails wrap every link in a tracking path, so a profile shows up as /comm/in/<slug>.
+  const segments = u.pathname.split("/").filter(Boolean);
+  const [first, slug] = segments[0]?.toLowerCase() === "comm" ? segments.slice(1) : segments;
   if (first?.toLowerCase() !== "in" || !slug) return null;
 
   let decoded = slug;

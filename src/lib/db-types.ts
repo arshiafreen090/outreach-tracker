@@ -54,3 +54,18 @@ export interface LastMessage {
   final_text: string;
   sent_at: string;
 }
+
+/** An accepted person seen in an email. 'unmatched' ones wait for you on the Unknown accepts page. */
+export interface AcceptCandidate {
+  id: string;
+  full_name: string;
+  headline: string | null;
+  company_hint: string | null;
+  profile_url: string | null;
+  profile_url_key: string;
+  photo_url: string | null;
+  accepted_at: string;
+  status: "unmatched" | "linked" | "dismissed";
+  match_method: "url" | "name" | "manual" | null;
+  person_id: string | null;
+}

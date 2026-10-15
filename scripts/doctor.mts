@@ -9,7 +9,7 @@ import { createClient } from "@supabase/supabase-js";
 import { checkEnv, judgeSchema, type Check } from "../src/lib/doctor-checks";
 import { parseSeed } from "../src/lib/templates/seed-parser";
 
-const TABLES = ["companies", "people", "email_ingest_log", "outreach_events", "templates", "template_versions", "messages_sent", "jobs", "settings", "app_owner"];
+const TABLES = ["companies", "people", "email_ingest_log", "outreach_events", "templates", "template_versions", "messages_sent", "jobs", "settings", "app_owner", "accept_candidates"];
 const SETTING_KEYS = ["follow_up_days", "pending_nudge_days", "show_photos"];
 
 const results: Check[] = [...checkEnv(process.env)];

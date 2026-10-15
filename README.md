@@ -15,7 +15,7 @@ A personal dashboard for managing LinkedIn internship outreach: who accepted, wh
 |---|---|---|
 | 1 | Repo, Supabase schema, template seed + engine + tests, company categories | **done** |
 | 2 | Dashboard: login, accepted/pending/messaged cards, template dropdown, copy, mark-sent, log-request form, settings, template editor | **done** (not yet exercised against a live Supabase project) |
-| 3 | Gmail forwarder (Apps Script -> `/api/ingest` -> `email_ingest_log`): **built and tested**, not yet installed. Then the parsers for accepts, replies and job alerts, which need your sample emails. No Telegram: alerts are badges inside the dashboard | in progress |
+| 3 | Gmail forwarder + parsers for accepts and job alerts, tested on your real emails, plus the Unknown accepts page. Still to do on your side: apply migration 0004, deploy, install the script. Reply emails need a sample. No Telegram: alerts are badges in the dashboard | built, not yet live |
 | 4 | Google Sheet sync + follow-up tracking | |
 | 5 | Jobs feed | |
 | 6 | Companies page, find-people links, company discovery and blurbs | |
@@ -93,9 +93,27 @@ Why it is safe: `apps-script/appsscript.json` limits the script to the `gmail.re
 5. Run `installTrigger` once.
 6. After a few minutes, `npm run doctor` shows a **Gmail ingest** line with how many emails reached the server.
 
-### C. Give me real emails to parse
+### C. What LinkedIn's emails contain (read from your real samples)
 
-In Gmail, open a LinkedIn email (an accepted invitation, a new message, a job alert), use the three-dot menu, **Download message**, and copy the `.eml` files into the `samples/` folder. It is git-ignored; the files are personal data. The parsers are written and tested against those real emails rather than guessed formats.
+LinkedIn labels each email with `X-LinkedIn-Class` and `X-LinkedIn-Template` headers, and Gmail records whether LinkedIn's DKIM signature verified. The parser trusts an email only if it is from `@linkedin.com` **and** that signature passed; a forged "LinkedIn" email is stored but ignored.
+
+| Email | Contains | Does not contain |
+|---|---|---|
+| **Accepted invitation, one person** (`INVITE-ACCEPT`, `email_accept_invite_single_01`) | name, headline, profile link, photo, time | company or role as separate fields (a company is *guessed* from the headline, only as a suggestion); when you sent the request |
+| **Accepted invitations, digest** (`email_accept_invite_digest_02`, "You have 2 new connections") | the same, for each person | the same |
+| **Job alert** (`SAVEDSEARCH`, `email_job_alert_digest_01`) | per job: id, title, company, location, work mode, badges ("Easy Apply"), which saved search | posting date, description, salary, an apply link other than LinkedIn's |
+| **New-message email** | no sample yet | send me one when a reply arrives, and I'll write its parser |
+
+Notes: a long headline can be cut off by LinkedIn with an ellipsis. Photo links are signed and expire, so the dashboard falls back to initials. The "people you may know" block inside an accepted-invitation email is ignored.
+
+### D. How an accepted invitation reaches your dashboard
+
+1. The Apps Script forwards the email; `/api/ingest` stores it raw and reads who accepted.
+2. Each person is matched to a request you logged: first by profile URL, then by name, but only when exactly one open request has that name. A match moves them to **Accepted** with their photo and headline.
+3. Anyone it can't match with certainty appears under **Unknown accepts**, where you link them to a pending request, add them as a new person (company prefilled from the guess, for you to check), or dismiss them.
+4. Run `npm run reparse` after a parser improves, to re-read stored emails. Matching is idempotent, so repeating it is safe.
+
+Apply migration 0004 once for this (`npm run sql:copy:latest`, paste into the SQL Editor, Run). Then `npm run ingest:check` exercises the whole accept flow with fake people and removes them again.
 ## How the pieces work
 
 **Templates.** `templates/seed.md` is parsed by `src/lib/templates/seed-parser.ts` (strict: unexpected input throws, nothing is trimmed). `src/lib/templates/engine.ts` substitutes the three placeholders in a single pass:

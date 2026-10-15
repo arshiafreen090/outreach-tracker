@@ -9,6 +9,9 @@ export interface ParsedEmail {
   messageId: string | null;
   /** Gmail's verdict on SPF/DKIM/DMARC for this message, lower-cased. Used later to trust the sender. */
   authenticationResults: string | null;
+  /** LinkedIn's own labels for its emails (X-LinkedIn-Class / X-LinkedIn-Template). */
+  linkedinClass: string | null;
+  linkedinTemplate: string | null;
 }
 
 /**
@@ -32,5 +35,7 @@ export async function parseRawEmail(rawBase64Url: string): Promise<ParsedEmail> 
     text: mail.text || null,
     messageId: mail.messageId?.trim() || null,
     authenticationResults: header("authentication-results")?.toLowerCase() ?? null,
+    linkedinClass: header("x-linkedin-class"),
+    linkedinTemplate: header("x-linkedin-template"),
   };
 }
