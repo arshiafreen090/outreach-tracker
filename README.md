@@ -35,7 +35,7 @@ A personal dashboard for managing LinkedIn internship outreach: who accepted, wh
 Developed and tested on Node 24 and npm 11.
 
 1. **Create a Supabase project** (free plan) in your organisation. The form asks for a database password: save it in a password manager; this app never uses it. Then open the project's API Keys page and note the project URL, the *publishable* key (`sb_publishable_...`) and the *secret* key (`sb_secret_...`). The secret key bypasses RLS: it goes only into `.env.local`, never into chat, a commit or a `NEXT_PUBLIC_` variable.
-2. **Create the schema.** Run `npm run sql:copy` (Windows: puts both migrations, in order, on your clipboard), open the project's SQL Editor, paste and run. Without `clip`, run the two files by hand in order: [`0001_init.sql`](supabase/migrations/0001_init.sql), then [`0002_actions.sql`](supabase/migrations/0002_actions.sql).
+2. **Create the schema.** Run `npm run sql:copy` (Windows: puts both migrations, in order, on your clipboard), open the project's SQL Editor, paste and run. Without `clip`, run the files by hand in order: [`0001_init.sql`](supabase/migrations/0001_init.sql), [`0002_actions.sql`](supabase/migrations/0002_actions.sql), then [`0003_owner_only.sql`](supabase/migrations/0003_owner_only.sql). If you already applied the earlier ones, `npm run sql:copy:latest` copies only the newest.
 3. **Lock down login.** In Authentication, turn **off** "Allow new users to sign up", then create one user with your email and a password. If the form offers "Auto Confirm User", tick it, otherwise sign-in fails until the email is confirmed. I haven't verified the exact labels in the current dashboard; `npm run doctor` (step 5) tells you if anything is off.
 4. **Configure env.** `.env.local` already exists (git-ignored, with a generated `INGEST_SHARED_SECRET` for Phase 3). Fill in `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY` and `ALLOWED_EMAIL` (the email of the user from step 3). Leave the Telegram keys empty until Phase 3.
 5. **Check and seed.**
@@ -44,7 +44,7 @@ Developed and tested on Node 24 and npm 11.
    npm run doctor            # read-only: env, schema, auth user, sign-ups off, anonymous lock-down
    npm run seed:templates    # then run doctor once more
    ```
-   `doctor` prints OK / WARN / FAIL per check and exits non-zero on any FAIL. It also catches the classic mistake of pasting the secret key into the `NEXT_PUBLIC_` variable. `seed:templates` ends with `OK: 4 templates verified.`: it inserts each template and its version 1, reads version 1 back and fails loudly unless it is byte-identical to `templates/seed.md`. It is safe to re-run and never modifies existing rows.
+   `doctor` prints OK / WARN / FAIL per check and exits non-zero on any FAIL. It also catches the classic mistake of pasting the secret key into the `NEXT_PUBLIC_` variable. `seed:templates` ends with `OK: 4 templates verified.`: it inserts each template and its version 1, reads version 1 back and fails loudly unless it is byte-identical to `templates/seed.md`, then registers `ALLOWED_EMAIL` as the database's one owner. It is safe to re-run and never modifies existing templates.
 6. **Run it.** `npm run dev`, open http://localhost:3000 and sign in with the user from step 3. Nothing can be read without that login: the proxy redirects everyone else to `/login`, every page re-checks, and every server action re-checks the signed-in email against `ALLOWED_EMAIL`.
 
 Day to day:
@@ -85,7 +85,7 @@ Dates are shown in India time (`Asia/Kolkata`, set in `src/lib/time.ts`).
 | `other_relevant` | Template 1 |
 | `small_startup` | Template 4 (carries the "certified anime lover" warning; the line is never auto-edited) |
 
-**Security.** RLS is enabled on every table with a single policy for the `authenticated` role; `anon` has no access; the views use `security_invoker` so they can't leak what the tables hide. Server-only code (seed script, later the ingest API route) uses the secret key.
+**Security.** RLS is enabled on every table. The only policy requires the caller's signed-token email to be the single row in `app_owner` (migration 0003, filled from `ALLOWED_EMAIL`), so even if public sign-ups were left on, a stranger who signs up can read and write nothing; `anon` has no access; the views use `security_invoker` so they can't leak what the tables hide. Server-only code (seed script, later the ingest API route) uses the secret key.
 
 ## Verified facts and open items
 

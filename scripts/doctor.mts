@@ -9,7 +9,7 @@ import { createClient } from "@supabase/supabase-js";
 import { checkEnv, type Check } from "../src/lib/doctor-checks";
 import { parseSeed } from "../src/lib/templates/seed-parser";
 
-const TABLES = ["companies", "people", "email_ingest_log", "outreach_events", "templates", "template_versions", "messages_sent", "jobs", "settings"];
+const TABLES = ["companies", "people", "email_ingest_log", "outreach_events", "templates", "template_versions", "messages_sent", "jobs", "settings", "app_owner"];
 const SETTING_KEYS = ["follow_up_days", "pending_nudge_days", "show_photos"];
 
 const results: Check[] = [...checkEnv(process.env)];
@@ -40,16 +40,15 @@ const clientOptions = { auth: { persistSession: false, autoRefreshToken: false }
 const admin = createClient(url, secret, clientOptions);
 const anon = createClient(url, publishable, clientOptions);
 
-// 1. Auth service reachable; are public sign-ups off?
+// 1. Auth service reachable. (Whether public sign-ups are off is judged below, together with the owner gate.)
+let signups: "off" | "on" | "unknown" = "unknown";
 try {
   const res = await fetch(`${url}/auth/v1/settings`, { headers: { apikey: publishable } });
   if (!res.ok) fail("Auth service", `HTTP ${res.status}. Check the URL and publishable key`);
   else {
     const settings = (await res.json()) as { disable_signup?: unknown };
     ok("Auth service", "reachable");
-    if (settings.disable_signup === true) ok("Public sign-ups", "disabled");
-    else if (settings.disable_signup === false) fail("Public sign-ups", "ENABLED. Turn off 'Allow new users to sign up' in Authentication settings");
-    else warn("Public sign-ups", "couldn't read the setting; check 'Allow new users to sign up' is off by hand");
+    signups = settings.disable_signup === true ? "off" : settings.disable_signup === false ? "on" : "unknown";
   }
 } catch (e) {
   fail("Auth service", `unreachable: ${(e as Error).message}`);
@@ -63,6 +62,8 @@ for (const name of [...TABLES, "people_overview", "templates_current"]) {
 }
 if (problems.size === TABLES.length + 2) {
   fail("Schema", "NONE of the tables or views exist in this project, so the SQL has not been applied here. Run 'npm run sql:copy', paste it into THIS project's SQL Editor and press Run");
+} else if ([...problems.keys()].every((n) => n === "app_owner")) {
+  fail("Schema", "migration 0003 (owner gate) hasn't been applied. Run 'npm run sql:copy:latest', paste it into the SQL Editor and press Run");
 } else if (problems.size > 0) {
   fail("Schema", `missing or unreadable: ${[...problems].map(([n, e]) => `${n} (${e})`).join("; ")}. If the SQL ran with an error, nothing from it is kept: fix the error and run all of it again`);
 } else {
@@ -73,6 +74,25 @@ if (problems.size === TABLES.length + 2) {
 const fn = await admin.rpc("upsert_company", { p_name: "" });
 if (fn.error) fail("Functions (migration 0002)", `${fn.error.message}. Did the second migration run?`);
 else ok("Functions (migration 0002)", "callable");
+
+// The database itself only lets ALLOWED_EMAIL in (RLS checks the signed token's email against app_owner)
+let ownerGateOk = false;
+{
+  const { data, error } = await admin.from("app_owner").select("email");
+  if (error) fail("Owner gate (migration 0003)", `${error.code ?? "error"}: ${error.message}`);
+  else if (!data || data.length === 0) fail("Owner gate", "app_owner is empty, so nobody can use the dashboard. Run 'npm run seed:templates' (it registers ALLOWED_EMAIL)");
+  else if (data.length !== 1 || data[0]?.email !== allowedEmail) fail("Owner gate", `app_owner has ${data.length} row(s) and doesn't match ALLOWED_EMAIL. Run 'npm run seed:templates'`);
+  else {
+    ok("Owner gate", "the database accepts only ALLOWED_EMAIL");
+    ownerGateOk = true;
+  }
+}
+
+if (signups === "off") ok("Public sign-ups", "disabled");
+else if (signups === "on") {
+  if (ownerGateOk) warn("Public sign-ups", "still ENABLED. Not a data risk now (the owner gate rejects strangers), but switch off 'Allow new users to sign up' to stop stray accounts");
+  else fail("Public sign-ups", "ENABLED and the owner gate isn't in place. Turn off 'Allow new users to sign up'");
+} else warn("Public sign-ups", "couldn't read the setting; check 'Allow new users to sign up' by hand");
 
 // 3. Settings rows
 {

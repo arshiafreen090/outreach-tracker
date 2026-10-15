@@ -3,5 +3,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 
 const dir = new URL("../supabase/migrations/", import.meta.url);
-const files = readdirSync(dir).filter((f) => f.endsWith(".sql")).sort();
+const all = readdirSync(dir).filter((f) => f.endsWith(".sql")).sort();
+// --latest: only the newest migration, for projects where the earlier ones are already applied.
+const files = process.argv.includes("--latest") ? all.slice(-1) : all;
 process.stdout.write(files.map((f) => `-- ===== ${f} =====\n${readFileSync(new URL(f, dir), "utf8")}`).join("\n"));

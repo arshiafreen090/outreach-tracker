@@ -11,7 +11,17 @@ export const SUPABASE_PRELUDE = `
   grant usage on schema public to anon, authenticated, outsider;
   alter default privileges in schema public grant all on tables to anon, authenticated, outsider;
   alter default privileges in schema public grant execute on functions to anon, authenticated, outsider;
+
+  -- Supabase's auth.jwt(): the claims of the verified token for the current request
+  create schema auth;
+  create function auth.jwt() returns jsonb language sql stable as $$
+    select coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb
+  $$;
+  grant usage on schema auth to anon, authenticated, outsider;
 `;
+
+/** The one allowed user in tests. makeDb() registers it in app_owner. */
+export const OWNER_EMAIL = "owner@example.com";
 
 // Vitest runs from the repo root. (import.meta.url + fileURLToPath breaks under jsdom's URL.)
 const repoRoot = process.cwd();
@@ -29,7 +39,19 @@ export async function makeDb(): Promise<PGlite> {
   for (const file of files) {
     await db.exec(readFileSync(path.join(migrationsDir, file), "utf8"));
   }
+  await db.query("insert into app_owner (email) values ($1)", [OWNER_EMAIL]);
   return db;
+}
+
+/** Runs fn as `role`, as if the request carried a verified JWT for `email` (null = no email claim). */
+export async function asUser<T>(db: PGlite, role: string, email: string | null, fn: () => Promise<T>): Promise<T> {
+  const claims = email === null ? "" : JSON.stringify({ email });
+  await db.query("select set_config('request.jwt.claims', $1, false)", [claims]);
+  try {
+    return await asRole(db, role, fn);
+  } finally {
+    await db.query("select set_config('request.jwt.claims', '', false)");
+  }
 }
 
 export async function asRole<T>(db: PGlite, role: string, fn: () => Promise<T>): Promise<T> {

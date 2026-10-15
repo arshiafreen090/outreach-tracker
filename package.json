@@ -14,6 +14,7 @@
     "setup:env": "tsx scripts/setup-env.mts",
     "doctor": "tsx --env-file=.env.local scripts/doctor.mts",
     "sql:copy": "node scripts/print-sql.mjs | clip",
+    "sql:copy:latest": "node scripts/print-sql.mjs --latest | clip",
     "sql:file": "node scripts/print-sql.mjs > supabase/all-migrations.sql"
   },
   "devDependencies": {

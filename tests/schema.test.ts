@@ -2,7 +2,7 @@ import type { PGlite } from "@electric-sql/pglite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { parseSeed, type SeedTemplate } from "@/lib/templates/seed-parser";
 import { seedTemplates, type TemplateStore } from "@/lib/templates/seed";
-import { asRole as asRoleIn, makeDb, readRepoFile, scalar as scalarIn } from "./helpers/db";
+import { asRole as asRoleIn, asUser, makeDb, OWNER_EMAIL, readRepoFile, scalar as scalarIn } from "./helpers/db";
 
 const templates = parseSeed(readRepoFile("templates/seed.md"));
 
@@ -54,7 +54,7 @@ describe("migration", () => {
         where n.nspname = 'public' and c.relkind = 'r'`,
     );
     expect(r.rows.map((x) => x.relname).sort()).toEqual(
-      ["companies", "email_ingest_log", "jobs", "messages_sent", "outreach_events", "people", "settings", "template_versions", "templates"],
+      ["app_owner", "companies", "email_ingest_log", "jobs", "messages_sent", "outreach_events", "people", "settings", "template_versions", "templates"],
     );
     expect(r.rows.filter((x) => !x.relrowsecurity)).toEqual([]);
   });
@@ -205,8 +205,8 @@ describe("messages_sent and people_overview", () => {
 });
 
 describe("row level security", () => {
-  it("lets the authenticated role read and write", async () => {
-    await asRole("authenticated", async () => {
+  it("lets the signed-in owner read and write", async () => {
+    await asUser(db, "authenticated", OWNER_EMAIL, async () => {
       await db.query("insert into companies (name, category) values ('Swiggy', 'food_delivery')");
       const n = await scalar<number>("select count(*)::int as v from companies");
       expect(n).toBeGreaterThanOrEqual(2);

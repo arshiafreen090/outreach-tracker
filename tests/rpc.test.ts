@@ -1,6 +1,6 @@
 import type { PGlite } from "@electric-sql/pglite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { asRole, makeDb, readRepoFile, scalar } from "./helpers/db";
+import { asRole, asUser, makeDb, OWNER_EMAIL, readRepoFile, scalar } from "./helpers/db";
 import { parseSeed } from "@/lib/templates/seed-parser";
 import { seedTemplates } from "@/lib/templates/seed";
 import type { SeedTemplate } from "@/lib/templates/seed-parser";
@@ -157,8 +157,8 @@ describe("set_person_company", () => {
 });
 
 describe("privileges", () => {
-  it("lets authenticated call the functions, and nobody else", async () => {
-    const id = await asRole(db, "authenticated", () => logRequest("By Auth", { key: "in/by-auth" }));
+  it("lets the signed-in owner call the functions, and nobody else", async () => {
+    const id = await asUser(db, "authenticated", OWNER_EMAIL, () => logRequest("By Auth", { key: "in/by-auth" }));
     expect(id).toBeTruthy();
     await asRole(db, "anon", async () => {
       await expect(logRequest("By Anon", { key: "in/by-anon" })).rejects.toThrow(/permission denied/i);
