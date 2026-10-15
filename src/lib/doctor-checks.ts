@@ -36,6 +36,23 @@ const warn = (name: string, detail: string): Check => ({ name, status: "warn", d
 const fail = (name: string, detail: string): Check => ({ name, status: "fail", detail });
 
 /**
+ * Turns "which tables/views failed to load" into one verdict.
+ * `problems` maps object name -> error text; `total` is how many objects were probed.
+ */
+export function judgeSchema(problems: ReadonlyMap<string, string>, total: number, tableCount: number): Check {
+  const name = "Schema";
+  if (problems.size === 0) return ok(name, `${tableCount} tables and ${total - tableCount} views present`);
+  if (problems.size === total) {
+    return fail(name, "NONE of the tables or views exist in this project, so the SQL has not been applied here. Run 'npm run sql:copy', paste it into THIS project's SQL Editor and press Run");
+  }
+  if ([...problems.keys()].every((n) => n === "app_owner")) {
+    return fail(name, "migration 0003 (owner gate) hasn't been applied. Run 'npm run sql:copy:latest', paste it into the SQL Editor and press Run");
+  }
+  const list = [...problems].map(([n, e]) => `${n} (${e})`).join("; ");
+  return fail(name, `missing or unreadable: ${list}. If the SQL ran with an error, nothing from it is kept: fix the error and run all of it again`);
+}
+
+/**
  * Static checks of .env.local. The most important one: a secret (RLS-bypassing) key in
  * the NEXT_PUBLIC_ variable would be shipped to every browser.
  */

@@ -1,7 +1,33 @@
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { checkEnv, classifyKey } from "@/lib/doctor-checks";
+import { checkEnv, classifyKey, judgeSchema } from "@/lib/doctor-checks";
+
+describe("judgeSchema", () => {
+  const err = "PGRST205: not found";
+  it("passes when nothing is missing (an empty problem list must not be read as 'only app_owner')", () => {
+    const c = judgeSchema(new Map(), 12, 10);
+    expect(c.status).toBe("ok");
+    expect(c.detail).toBe("10 tables and 2 views present");
+  });
+  it("says the SQL was never applied when everything is missing", () => {
+    const all = new Map(Array.from({ length: 12 }, (_, i) => [`t${i}`, err] as const));
+    const c = judgeSchema(all, 12, 10);
+    expect(c.status).toBe("fail");
+    expect(c.detail).toMatch(/NONE of the tables/);
+  });
+  it("points at migration 0003 when only app_owner is missing", () => {
+    const c = judgeSchema(new Map([["app_owner", err]]), 12, 10);
+    expect(c.status).toBe("fail");
+    expect(c.detail).toMatch(/0003/);
+  });
+  it("lists exactly what is missing otherwise", () => {
+    const c = judgeSchema(new Map([["people", err], ["jobs", err]]), 12, 10);
+    expect(c.status).toBe("fail");
+    expect(c.detail).toMatch(/people .*jobs/);
+    expect(c.detail).not.toMatch(/0003/);
+  });
+});
 
 const jwt = (role: string) => `eyJhbGciOiJIUzI1NiJ9.${Buffer.from(JSON.stringify({ role })).toString("base64url")}.sig`;
 

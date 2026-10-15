@@ -6,7 +6,7 @@
  */
 import { readFileSync } from "node:fs";
 import { createClient } from "@supabase/supabase-js";
-import { checkEnv, type Check } from "../src/lib/doctor-checks";
+import { checkEnv, judgeSchema, type Check } from "../src/lib/doctor-checks";
 import { parseSeed } from "../src/lib/templates/seed-parser";
 
 const TABLES = ["companies", "people", "email_ingest_log", "outreach_events", "templates", "template_versions", "messages_sent", "jobs", "settings", "app_owner"];
@@ -60,15 +60,7 @@ for (const name of [...TABLES, "people_overview", "templates_current"]) {
   const { error } = await admin.from(name).select("*").limit(1);
   if (error) problems.set(name, `${error.code ?? "error"}: ${error.message}`);
 }
-if (problems.size === TABLES.length + 2) {
-  fail("Schema", "NONE of the tables or views exist in this project, so the SQL has not been applied here. Run 'npm run sql:copy', paste it into THIS project's SQL Editor and press Run");
-} else if ([...problems.keys()].every((n) => n === "app_owner")) {
-  fail("Schema", "migration 0003 (owner gate) hasn't been applied. Run 'npm run sql:copy:latest', paste it into the SQL Editor and press Run");
-} else if (problems.size > 0) {
-  fail("Schema", `missing or unreadable: ${[...problems].map(([n, e]) => `${n} (${e})`).join("; ")}. If the SQL ran with an error, nothing from it is kept: fix the error and run all of it again`);
-} else {
-  ok("Schema", `${TABLES.length} tables and 2 views present`);
-}
+add(judgeSchema(problems, TABLES.length + 2, TABLES.length));
 
 // upsert_company with a blank name returns null and writes nothing
 const fn = await admin.rpc("upsert_company", { p_name: "" });

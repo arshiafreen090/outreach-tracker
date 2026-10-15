@@ -43,6 +43,7 @@ Developed and tested on Node 24 and npm 11.
    npm install
    npm run doctor            # read-only: env, schema, auth user, sign-ups off, anonymous lock-down
    npm run seed:templates    # then run doctor once more
+   npm run smoke             # optional: end-to-end test of the real flow as the owner; removes its own test rows
    ```
    `doctor` prints OK / WARN / FAIL per check and exits non-zero on any FAIL. It also catches the classic mistake of pasting the secret key into the `NEXT_PUBLIC_` variable. `seed:templates` ends with `OK: 4 templates verified.`: it inserts each template and its version 1, reads version 1 back and fails loudly unless it is byte-identical to `templates/seed.md`, then registers `ALLOWED_EMAIL` as the database's one owner. It is safe to re-run and never modifies existing templates.
 6. **Run it.** `npm run dev`, open http://localhost:3000 and sign in with the user from step 3. Nothing can be read without that login: the proxy redirects everyone else to `/login`, every page re-checks, and every server action re-checks the signed-in email against `ALLOWED_EMAIL`.
