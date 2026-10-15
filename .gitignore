@@ -21,3 +21,6 @@ apps-script/config.local.*
 .vercel/
 .DS_Store
 Thumbs.db
+
+# real emails used to build and test the parser: personal data, never commit
+samples/

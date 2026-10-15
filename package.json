@@ -14,6 +14,7 @@
     "setup:env": "tsx scripts/setup-env.mts",
     "doctor": "tsx --env-file=.env.local scripts/doctor.mts",
     "smoke": "tsx --env-file=.env.local scripts/smoke.mts",
+    "ingest:check": "tsx --env-file=.env.local scripts/ingest-check.mts",
     "sql:copy": "node scripts/print-sql.mjs | clip",
     "sql:copy:latest": "node scripts/print-sql.mjs --latest | clip",
     "sql:file": "node scripts/print-sql.mjs > supabase/all-migrations.sql"
@@ -35,6 +36,7 @@
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.118.0",
     "next": "^16.4.1",
+    "postal-mime": "^4.0.7",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
   }

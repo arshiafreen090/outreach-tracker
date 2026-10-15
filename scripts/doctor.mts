@@ -133,6 +133,15 @@ else if (signups === "on") {
   }
 }
 
+// 5b. Gmail forwarder activity (informational: a warning until the Apps Script is installed)
+{
+  // A real GET with a count: supabase-js reports a 404 on HEAD requests as success.
+  const { data, error, count } = await admin.from("email_ingest_log").select("created_at", { count: "exact" }).order("created_at", { ascending: false }).limit(1);
+  if (error) fail("Gmail ingest", `${error.code ?? "error"}: ${error.message}`);
+  else if (!count) warn("Gmail ingest", "no emails received yet. Set up the Apps Script (README, Phase 3: Gmail forwarder)");
+  else ok("Gmail ingest", `${count} email(s) stored; the latest reached the server at ${data?.[0]?.created_at}`);
+}
+
 // 6. What a browser (publishable key, no login) can do: nothing
 {
   const leaks: string[] = [];

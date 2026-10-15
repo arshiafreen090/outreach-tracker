@@ -11,6 +11,9 @@ import { isAllowedEmail } from "@/lib/auth-rules";
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
+  // The Apps Script's endpoints authenticate themselves with the shared secret (no browser session).
+  if (pathname === "/api/ingest" || pathname === "/api/ingest/ping") return NextResponse.next();
+
   // Fixture-only UI preview, never reachable in production builds.
   if (process.env.NODE_ENV !== "production" && pathname.startsWith("/dev/")) {
     return NextResponse.next();

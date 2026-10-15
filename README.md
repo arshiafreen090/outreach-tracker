@@ -15,7 +15,7 @@ A personal dashboard for managing LinkedIn internship outreach: who accepted, wh
 |---|---|---|
 | 1 | Repo, Supabase schema, template seed + engine + tests, company categories | **done** |
 | 2 | Dashboard: login, accepted/pending/messaged cards, template dropdown, copy, mark-sent, log-request form, settings, template editor | **done** (not yet exercised against a live Supabase project) |
-| 3 | Gmail Apps Script parser for accepts, replies and job alerts (needs your sample emails). No Telegram: alerts are badges inside the dashboard | |
+| 3 | Gmail forwarder (Apps Script -> `/api/ingest` -> `email_ingest_log`): **built and tested**, not yet installed. Then the parsers for accepts, replies and job alerts, which need your sample emails. No Telegram: alerts are badges inside the dashboard | in progress |
 | 4 | Google Sheet sync + follow-up tracking | |
 | 5 | Jobs feed | |
 | 6 | Companies page, find-people links, company discovery and blurbs | |
@@ -67,6 +67,35 @@ Dates are shown in India time (`Asia/Kolkata`, set in `src/lib/time.ts`).
 
 **UI preview without Supabase:** with `npm run dev`, open http://localhost:3000/dev/preview for fixture cards (real templates, fake people). It is disabled in production builds.
 
+## Phase 3: Gmail forwarder
+
+A small, read-only Google Apps Script runs every 10 minutes in your Gmail, finds recent LinkedIn emails and sends each one, untouched, to your dashboard's `/api/ingest`. The server stores it in `email_ingest_log` (raw, idempotent per Gmail message id) and, once the parsers exist, turns accepts and replies into dashboard updates. It never touches LinkedIn.
+
+Why it is safe: `apps-script/appsscript.json` limits the script to the `gmail.readonly` scope, so it cannot send, label, archive or delete mail. The endpoint requires `Authorization: Bearer <INGEST_SHARED_SECRET>` (compared in constant time, closed if the secret is unset) and never echoes database errors. Google's quotas are far above what this needs: 6 minutes per run, 90 minutes per day of trigger time, 20,000 fetches and 20,000 email reads per day ([quotas](https://developers.google.com/apps-script/guides/services/quotas)).
+
+### A. Deploy the dashboard (the script runs on Google's servers, so it can't reach localhost)
+
+1. Put the repo on a **private** GitHub repository and push. `.env.local` and `samples/` are git-ignored.
+2. In Vercel, import that repository (framework: Next.js, nothing else to change).
+3. Add these environment variables, copying the values from your `.env.local`: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY`, `ALLOWED_EMAIL`, `INGEST_SHARED_SECRET`. Mark the secret key and the ingest secret as sensitive if Vercel offers it.
+4. Deploy, then check the live endpoint (it stores one synthetic email in your database and deletes it again):
+   ```bash
+   npm run ingest:check -- https://YOUR-APP.vercel.app
+   ```
+   Vercel limits request bodies to 4.5 MB ([limits](https://vercel.com/docs/functions/limitations)), which is why the script sends small batches.
+
+### B. Install the script (signed in to the Gmail account that receives LinkedIn mail)
+
+1. Open https://script.google.com and create a **New project**.
+2. Project Settings: tick "Show appsscript.json manifest file in editor". Replace the manifest's contents with [`apps-script/appsscript.json`](apps-script/appsscript.json), and the contents of `Code.gs` with [`apps-script/Code.gs`](apps-script/Code.gs).
+3. Project Settings, **Script Properties**: add `INGEST_BASE_URL` (`https://YOUR-APP.vercel.app`, no trailing slash) and `INGEST_SECRET` (the value of `INGEST_SHARED_SECRET` from `.env.local`).
+4. Run `testConnection` once. Google asks for permission: reading mail (read-only), connecting to an external service, and managing triggers. For a script you wrote yourself it may show a "Google hasn't verified this app" screen; that is expected.
+5. Run `installTrigger` once.
+6. After a few minutes, `npm run doctor` shows a **Gmail ingest** line with how many emails reached the server.
+
+### C. Give me real emails to parse
+
+In Gmail, open a LinkedIn email (an accepted invitation, a new message, a job alert), use the three-dot menu, **Download message**, and copy the `.eml` files into the `samples/` folder. It is git-ignored; the files are personal data. The parsers are written and tested against those real emails rather than guessed formats.
 ## How the pieces work
 
 **Templates.** `templates/seed.md` is parsed by `src/lib/templates/seed-parser.ts` (strict: unexpected input throws, nothing is trimmed). `src/lib/templates/engine.ts` substitutes the three placeholders in a single pass:
