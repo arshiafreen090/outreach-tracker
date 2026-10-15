@@ -7,13 +7,13 @@ const LINKS = [
   { href: "/", label: "Accepted", count: "accepted" as const },
   { href: "/pending", label: "Pending", count: "pending" as const },
   { href: "/unmatched", label: "Unknown accepts", count: "unmatched" as const },
-  { href: "/messaged", label: "Messaged" },
+  { href: "/messaged", label: "Messaged", count: "followUps" as const, hint: "follow-ups due" },
   { href: "/log", label: "Log request" },
   { href: "/templates", label: "Templates" },
   { href: "/settings", label: "Settings" },
 ];
 
-export function NavLinks({ counts }: { counts: { accepted: number; pending: number; unmatched: number } }) {
+export function NavLinks({ counts }: { counts: { accepted: number; pending: number; unmatched: number; followUps: number } }) {
   const pathname = usePathname();
   return (
     <nav className="nav" aria-label="Main">
@@ -23,7 +23,11 @@ export function NavLinks({ counts }: { counts: { accepted: number; pending: numb
         return (
           <Link key={link.href} href={link.href} aria-current={active ? "page" : undefined}>
             {link.label}
-            {n > 0 && <span className="count">{n}</span>}
+            {n > 0 && (
+              <span className="count" title={"hint" in link ? `${n} ${link.hint}` : undefined}>
+                {n}
+              </span>
+            )}
           </Link>
         );
       })}

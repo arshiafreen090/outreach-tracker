@@ -22,6 +22,8 @@ export interface PersonRow {
   last_messaged_at: string | null;
   last_replied_at: string | null;
   messages_sent_count: number;
+  /** Follow-ups you logged after the first message (migration 0005). */
+  follow_ups_count: number;
 }
 
 export interface CompanyRow {

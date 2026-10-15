@@ -16,7 +16,7 @@ A personal dashboard for managing LinkedIn internship outreach: who accepted, wh
 | 1 | Repo, Supabase schema, template seed + engine + tests, company categories | **done** |
 | 2 | Dashboard: login, accepted/pending/messaged cards, template dropdown, copy, mark-sent, log-request form, settings, template editor | **done** (not yet exercised against a live Supabase project) |
 | 3 | Gmail forwarder + parsers for accepts and job alerts, tested on your real emails, plus the Unknown accepts page. Still to do on your side: apply migration 0004, deploy, install the script. Reply emails need a sample. No Telegram: alerts are badges in the dashboard | built, not yet live |
-| 4 | Google Sheet sync + follow-up tracking | |
+| 4 | Replies, follow-ups (derived from your settings), status picker, and the Google Sheet mirror | built; needs migration 0005 and the Sheet script installed |
 | 5 | Jobs feed | |
 | 6 | Companies page, find-people links, company discovery and blurbs | |
 
@@ -114,6 +114,37 @@ Notes: a long headline can be cut off by LinkedIn with an ellipsis. Photo links 
 4. Run `npm run reparse` after a parser improves, to re-read stored emails. Matching is idempotent, so repeating it is safe.
 
 Apply migration 0004 once for this (`npm run sql:copy:latest`, paste into the SQL Editor, Run). Then `npm run ingest:check` exercises the whole accept flow with fake people and removes them again.
+## Phase 4: follow-ups and the Google Sheet
+
+### Follow-ups
+
+The **Messaged** page groups everyone you have messaged: **Follow-up due**, **Waiting for a reply**, **Replied**, **Referral, interview or offer**, and **Dead**. The nav badge counts follow-ups due.
+
+- **Follow-up due is derived, not stored:** you messaged them, they haven't replied since, and `follow_up_days` (Settings, default 5) have passed. Logging a follow-up restarts the clock, so it is always current and needs no scheduler. Setting a person's status to "Follow-up due" by hand also counts.
+- **They replied** records the reply and moves them to Replied (never back from referral, interview or offer). **I followed up** logs that you sent a follow-up (outside this app) and restarts the clock. It only works while you are waiting on a reply.
+- **Status** can be set by hand to any of the ten: new, requested, accepted, messaged, replied, follow-up due, referral, interview, offer, dead.
+- **Replies are marked by you for now.** Automatic detection needs a sample of LinkedIn's new-message email; when one arrives, drop it in `samples/`.
+- The follow-up message itself is yours to write: your templates cover first messages only, and I don't invent others.
+
+Apply migration 0005 for this: `npm run sql:copy:latest`, paste into the SQL Editor, Run.
+
+### Google Sheet mirror
+
+Three tabs, **Accepted connections**, **Messaged** (one row per message: who, which template and version, when, plus status, reply date and whether a follow-up is due) and **Pending requests** (with days pending and the nudge flag), refreshed every 15 minutes. It is a read-only mirror: keep your own notes and charts in other tabs.
+
+**Why this design:** the Sheet's own Apps Script *pulls* from your dashboard's `/api/sheet` with the same shared secret the Gmail forwarder uses. The alternatives were pushing through the Google Sheets API (needs a Google Cloud project and a service-account key stored as a secret) or an inbound Apps Script web app (a second public endpoint). Pulling needs neither: no new account, no new secret, nothing exposed, and everything runs as you.
+
+**Safety:** the Sheet's script is a separate Apps Script project from the Gmail forwarder, so neither can see the other's data. Its manifest asks only for `spreadsheets.currentonly` (this one Sheet), outbound requests and triggers; no Gmail, no Drive. Names and headlines come from emails, and a Sheet cell starting with `=` is a formula that could read other cells or call the internet. So the server prefixes any such text with an apostrophe (tested) and the script also writes every cell as plain text.
+
+**Setup** (after the dashboard is deployed):
+
+1. In your personal Google account create a new Google Sheet (any name).
+2. **Extensions > Apps Script.** In Project Settings tick "Show appsscript.json manifest file in editor". Replace the manifest with [`apps-script-sheet/appsscript.json`](apps-script-sheet/appsscript.json) and the code with [`apps-script-sheet/Code.gs`](apps-script-sheet/Code.gs).
+3. Project Settings, **Script Properties**: add `INGEST_BASE_URL` (`https://YOUR-APP.vercel.app`) and `INGEST_SECRET` (the `INGEST_SHARED_SECRET` value from `.env.local`).
+4. Run `syncSheet` once and accept the permissions, then run `installTrigger` once. Reload the Sheet to get an **Outreach Tracker > Sync now** menu.
+5. Check the endpoint any time with `npm run sheet:check` (or `npm run sheet:check -- https://YOUR-APP.vercel.app`).
+
+Not verified: Google's docs I could read don't spell out `spreadsheets.currentonly` (third-party sources and Google's add-on docs list it). If the editor rejects it, replace it in the manifest with `https://www.googleapis.com/auth/spreadsheets` (all your spreadsheets), which Google documents.
 ## How the pieces work
 
 **Templates.** `templates/seed.md` is parsed by `src/lib/templates/seed-parser.ts` (strict: unexpected input throws, nothing is trimmed). `src/lib/templates/engine.ts` substitutes the three placeholders in a single pass:
@@ -156,6 +187,10 @@ Not yet verified (will be checked before the phase that relies on them):
 templates/seed.md                  original template text (never edit)
 supabase/migrations/0001_init.sql  schema, triggers, views, RLS
 supabase/migrations/0002_actions.sql  atomic functions: log_request, mark_accepted, mark_message_sent, ...
+supabase/migrations/0005_followups.sql  mark_replied, mark_followed_up, set_person_status
+apps-script-sheet/                  the Google Sheet mirror script (bound to your Sheet)
+src/lib/sheet/                     builds the three tabs (formula-safe) for /api/sheet
+src/lib/followups.ts               follow-up due logic and grouping
 src/proxy.ts                       session refresh + redirect to /login
 src/app/actions.ts                 server actions (each re-checks the signed-in user)
 src/app/(app)/                     Accepted, Pending, Messaged, Log, Templates, Settings pages

@@ -7,6 +7,7 @@ import { isAllowedEmail } from "@/lib/auth-rules";
 import { getAuthedClient } from "@/lib/auth";
 import { isCompanyCategory, type CompanyCategory } from "@/lib/categories";
 import { parseDaysInput } from "@/lib/settings";
+import { isPersonStatus } from "@/lib/status";
 import { createClient } from "@/lib/supabase/server";
 import { findUnknownPlaceholders } from "@/lib/templates/engine";
 import { dateInputToDate } from "@/lib/time";
@@ -268,6 +269,47 @@ export async function dismissAccept(candidateId: string): Promise<ActionResult> 
   if (!isUuid(candidateId)) return fail("Invalid accept.");
   const { error } = await authed.supabase.rpc("dismiss_accept", { p_candidate_id: candidateId });
   if (error) return fail(mapAcceptError(error.message));
+  refresh();
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------- replies, follow-ups, status
+
+const mapPersonError = (message: string): string => {
+  if (message.includes("not_awaiting_reply")) return "They're not waiting on a reply, so there's nothing to follow up.";
+  if (message.includes("person_not_found")) return "That person no longer exists. Reload the page.";
+  return message;
+};
+
+/** They replied: records the reply and moves them to "Replied" (unless they are already further along). */
+export async function markReplied(personId: string): Promise<ActionResult> {
+  const authed = await getAuthedClient();
+  if (!authed) return fail(SIGNED_OUT);
+  if (!isUuid(personId)) return fail("Invalid person.");
+  const { error } = await authed.supabase.rpc("mark_replied", { p_person_id: personId });
+  if (error) return fail(mapPersonError(error.message));
+  refresh();
+  return { ok: true };
+}
+
+/** You sent a follow-up (outside this app): restarts the no-reply clock. */
+export async function markFollowedUp(personId: string): Promise<ActionResult> {
+  const authed = await getAuthedClient();
+  if (!authed) return fail(SIGNED_OUT);
+  if (!isUuid(personId)) return fail("Invalid person.");
+  const { error } = await authed.supabase.rpc("mark_followed_up", { p_person_id: personId });
+  if (error) return fail(mapPersonError(error.message));
+  refresh();
+  return { ok: true };
+}
+
+export async function setPersonStatus(personId: string, status: string): Promise<ActionResult> {
+  const authed = await getAuthedClient();
+  if (!authed) return fail(SIGNED_OUT);
+  if (!isUuid(personId)) return fail("Invalid person.");
+  if (!isPersonStatus(status)) return fail("Unknown status.");
+  const { error } = await authed.supabase.rpc("set_person_status", { p_person_id: personId, p_status: status });
+  if (error) return fail(mapPersonError(error.message));
   refresh();
   return { ok: true };
 }

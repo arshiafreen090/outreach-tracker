@@ -42,7 +42,7 @@ async function cleanup() {
 async function overview(id: string) {
   const { data, error } = await owner.from("people_overview").select("*").eq("id", id).single();
   if (error) throw new Error(`people_overview: ${error.message}`);
-  return data as { status: string; company_id: string | null; requested_at: string | null; accepted_at: string | null; last_messaged_at: string | null; messages_sent_count: number };
+  return data as { status: string; company_id: string | null; requested_at: string | null; accepted_at: string | null; last_messaged_at: string | null; last_replied_at: string | null; messages_sent_count: number; follow_ups_count: number };
 }
 
 try {
@@ -111,6 +111,30 @@ try {
     "Stored message text is exactly what was sent, with its template version",
     stored.error?.message,
   );
+
+  // Replies and follow-ups, as the signed-in owner (needs migration 0005)
+  const gone = "00000000-0000-0000-0000-000000000000";
+  const available = await owner.rpc("set_person_status", { p_person_id: gone, p_status: "new" });
+  if (!String(available.error?.message).includes("person_not_found")) {
+    step(false, "Follow-ups", `migration 0005 is not applied (${available.error?.message ?? "unexpected"})`);
+  } else {
+    const messagedAt = (await overview(id)).last_messaged_at;
+    const followed = await owner.rpc("mark_followed_up", { p_person_id: id });
+    o = await overview(id);
+    step(!followed.error && o.follow_ups_count === 1 && o.messages_sent_count === 2 && Boolean(o.last_messaged_at && messagedAt && o.last_messaged_at >= messagedAt), "mark_followed_up restarts the clock and counts one follow-up", followed.error?.message);
+
+    const replied = await owner.rpc("mark_replied", { p_person_id: id });
+    o = await overview(id);
+    step(!replied.error && o.status === "replied" && Boolean(o.last_replied_at), "mark_replied moves them to Replied", replied.error?.message);
+
+    const late = await owner.rpc("mark_followed_up", { p_person_id: id });
+    step(Boolean(late.error?.message.includes("not_awaiting_reply")), "You can't follow up someone who already replied", late.error?.message ?? "it succeeded");
+
+    const interview = await owner.rpc("set_person_status", { p_person_id: id, p_status: "interview" });
+    const again = await owner.rpc("mark_replied", { p_person_id: id });
+    o = await overview(id);
+    step(!interview.error && !again.error && o.status === "interview", "set_person_status works, and a later reply never pulls them back", interview.error?.message ?? again.error?.message);
+  }
 
   // Unknown accepts: the three buttons on that page, as the signed-in owner (needs migration 0004)
   const probe = await admin.from("accept_candidates").select("id").limit(1);

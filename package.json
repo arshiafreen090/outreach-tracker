@@ -16,6 +16,7 @@
     "smoke": "tsx --env-file=.env.local scripts/smoke.mts",
     "ingest:check": "tsx --env-file=.env.local scripts/ingest-check.mts",
     "reparse": "tsx --env-file=.env.local scripts/reparse.mts",
+    "sheet:check": "tsx --env-file=.env.local scripts/sheet-check.mts",
     "sql:copy": "node scripts/print-sql.mjs | clip",
     "sql:copy:latest": "node scripts/print-sql.mjs --latest | clip",
     "sql:file": "node scripts/print-sql.mjs > supabase/all-migrations.sql"

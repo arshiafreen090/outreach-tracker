@@ -48,6 +48,7 @@ export function person(overrides: Partial<PersonRow> = {}): PersonRow {
     last_messaged_at: null,
     last_replied_at: null,
     messages_sent_count: 0,
+    follow_ups_count: 0,
     ...overrides,
   };
 }

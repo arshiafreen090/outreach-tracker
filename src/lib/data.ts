@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { isFollowUpDue } from "./followups";
 import { parseSettings, type AppSettings } from "./settings";
 import type { AcceptCandidate, CompanyRow, LastMessage, PersonRow, PersonStatus, TemplateRow } from "./db-types";
 
@@ -51,7 +52,7 @@ export async function loadUnmatchedAccepts(db: SupabaseClient): Promise<AcceptCa
   return (data ?? []) as AcceptCandidate[];
 }
 
-export async function loadCounts(db: SupabaseClient): Promise<{ accepted: number; pending: number; unmatched: number }> {
+export async function loadCounts(db: SupabaseClient): Promise<{ accepted: number; pending: number; unmatched: number; followUps: number }> {
   const count = async (status: PersonStatus) => {
     const { count: n, error } = await db.from("people").select("id", { count: "exact", head: true }).eq("status", status);
     if (error) throw new Error(`Could not load counts: ${error.message}`);
@@ -60,7 +61,11 @@ export async function loadCounts(db: SupabaseClient): Promise<{ accepted: number
   const [accepted, pending] = await Promise.all([count("accepted"), count("requested")]);
   // Tolerant on purpose: before migration 0004 exists this must not take the whole dashboard down.
   const unknown = await db.from("accept_candidates").select("id", { count: "exact" }).eq("status", "unmatched").limit(1);
-  return { accepted, pending, unmatched: unknown.error ? 0 : (unknown.count ?? 0) };
+  const settings = await loadSettings(db);
+  const waiting = await db.from("people_overview").select("*").in("status", ["messaged", "follow_up_due"]);
+  if (waiting.error) throw new Error(`Could not load counts: ${waiting.error.message}`);
+  const followUps = ((waiting.data ?? []) as PersonRow[]).filter((p) => isFollowUpDue(p, settings.followUpDays)).length;
+  return { accepted, pending, unmatched: unknown.error ? 0 : (unknown.count ?? 0), followUps };
 }
 
 /** Most recent message per person (for the duplicate-send banner and the Messaged list). */

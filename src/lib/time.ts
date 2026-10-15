@@ -50,3 +50,16 @@ export function formatDateTime(value: string | Date): string {
     timeZone: DISPLAY_TIME_ZONE,
   }).format(typeof value === "string" ? new Date(value) : value);
 }
+
+/** "2026-10-16 14:05" in the display zone: sortable, and what a Google Sheet shows without reformatting. */
+export function formatSheetDateTime(value: string | Date): string {
+  return new Intl.DateTimeFormat("sv-SE", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+    timeZone: DISPLAY_TIME_ZONE,
+  }).format(typeof value === "string" ? new Date(value) : value);
+}

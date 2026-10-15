@@ -21,7 +21,7 @@ const companies: CompanyRow[] = [
 const base: PersonRow = {
   id: "p0", full_name: "", first_name: null, role: null, company_id: null, company_name_raw: null,
   profile_url: "https://www.linkedin.com/in/example/", profile_url_key: null, photo_url: null, status: "accepted",
-  notes: null, requested_at: daysAgo(9), accepted_at: daysAgo(1), last_messaged_at: null, last_replied_at: null, messages_sent_count: 0,
+  notes: null, requested_at: daysAgo(9), accepted_at: daysAgo(1), last_messaged_at: null, last_replied_at: null, messages_sent_count: 0, follow_ups_count: 0,
 };
 
 const accepted: PersonRow[] = [
@@ -48,7 +48,7 @@ export function PreviewClient({ templates }: { templates: TemplateRow[] }) {
         <div className="topbar-inner">
           <span className="brand">Outreach Tracker · fixture preview</span>
         </div>
-        <NavLinks counts={{ accepted: accepted.length, pending: pending.length, unmatched: 1 }} />
+        <NavLinks counts={{ accepted: accepted.length, pending: pending.length, unmatched: 1, followUps: 2 }} />
       </header>
       <main className="container stack">
         <h1>Accepted</h1>

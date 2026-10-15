@@ -86,6 +86,13 @@ else if (signups === "on") {
   else fail("Public sign-ups", "ENABLED and the owner gate isn't in place. Turn off 'Allow new users to sign up'");
 } else warn("Public sign-ups", "couldn't read the setting; check 'Allow new users to sign up' by hand");
 
+// migration 0005: replies, follow-ups and status. A call for a person who doesn't exist writes nothing.
+{
+  const probe = await admin.rpc("set_person_status", { p_person_id: "00000000-0000-0000-0000-000000000000", p_status: "new" });
+  if (probe.error?.message.includes("person_not_found")) ok("Follow-up actions (migration 0005)", "callable");
+  else fail("Follow-up actions (migration 0005)", `${probe.error?.message ?? "unexpected success"}. Run 'npm run sql:copy:latest' and paste it into the SQL Editor`);
+}
+
 // 3. Settings rows
 {
   const { data, error } = await admin.from("settings").select("key");
